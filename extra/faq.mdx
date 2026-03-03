@@ -57,7 +57,7 @@ Common questions about using Fiber, its design decisions, and best practices. If
 
 <AccordionGroup>
   <Accordion title="How do I set up an error handler?" icon="triangle-exclamation">
-    To override the default error handler, provide a custom one in the [Config](../api/fiber.md#errorhandler) when creating a new [Fiber instance](../api/fiber.md#new).
+    To override the default error handler, provide a custom one in the [Config](/api/fiber#errorhandler) when creating a new [Fiber instance](/api/fiber).
 
     ```go
     app := fiber.New(fiber.Config{
@@ -67,11 +67,11 @@ Common questions about using Fiber, its design decisions, and best practices. If
     })
     ```
 
-    We have a dedicated page explaining how error handling works in Fiber, see [Error Handling](../guide/error-handling.md).
+    We have a dedicated page explaining how error handling works in Fiber, see [Error Handling](/concepts/error-handling).
   </Accordion>
 
   <Accordion title="How do I handle custom 404 responses?" icon="magnifying-glass-slash">
-    If you're using v2.32.0 or later, implement a custom error handler as shown above or read more at [Error Handling](../guide/error-handling.md#custom-error-handler).
+    If you're using v2.32.0 or later, implement a custom error handler as shown above or read more at [Error Handling](/concepts/error-handling#custom-error-handler).
 
     If you're using v2.31.0 or earlier, the error handler will not capture 404 errors. Instead, add a middleware function at the very bottom of the stack (below all other functions) to handle a 404 response:
 
@@ -99,7 +99,7 @@ Common questions about using Fiber, its design decisions, and best practices. If
     - [pug](https://docs.gofiber.io/template/pug/)
     - [slim](https://docs.gofiber.io/template/slim/)
 
-    To learn more about using Templates in Fiber, see [Templates](../guide/templates.md).
+    To learn more about using Templates in Fiber, see [Templates](/concepts/templates).
   </Accordion>
 </AccordionGroup>
 
@@ -198,7 +198,7 @@ Common questions about using Fiber, its design decisions, and best practices. If
     - Convert Fiber handlers to `net/http` handlers
     - Convert `fiber.Ctx` to `http.Request`
 
-    See the dedicated documentation: [Adaptor Documentation](../middleware/adaptor.md).
+    See the dedicated documentation: [Adaptor Documentation](/middleware/adaptor).
   </Accordion>
 
   <Accordion title="Is Fiber compatible with net/http?" icon="plug">
@@ -226,7 +226,7 @@ Common questions about using Fiber, its design decisions, and best practices. If
     4. **Optimized middleware**: Middleware pipeline is designed for minimal overhead
     5. **No reflection in hot paths**: Avoids expensive reflection operations in critical code paths
 
-    See our [Benchmarks](./benchmarks.mdx) for detailed performance comparisons.
+    See our [Benchmarks](/extra/benchmarks) for detailed performance comparisons.
   </Accordion>
 
   <Accordion title="What is zero-allocation routing?" icon="route">
@@ -287,7 +287,7 @@ Common questions about using Fiber, its design decisions, and best practices. If
     - [Official Examples](https://github.com/gofiber/fiber/tree/master/examples)
     - [Recipes Repository](https://github.com/gofiber/recipes)
     - [Boilerplate Projects](https://github.com/gofiber/boilerplate)
-    - [Community Tutorials](./learning-resources.mdx)
+    - [Community Tutorials](/extra/learning-resources)
   </Accordion>
 </AccordionGroup>
 
@@ -327,7 +327,7 @@ Common questions about using Fiber, its design decisions, and best practices. If
     }))
     ```
 
-    See the [WebSocket middleware documentation](../middleware/websocket.md) for more details.
+    See the [WebSocket middleware documentation](https://github.com/gofiber/contrib/tree/main/websocket) for more details.
   </Accordion>
 
   <Accordion title="Can I run multiple Fiber apps?" icon="layer-group">

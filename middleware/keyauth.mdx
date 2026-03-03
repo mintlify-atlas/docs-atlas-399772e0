@@ -141,7 +141,7 @@ app.Get("/protected", authMiddleware, func(c fiber.Ctx) error {
 </ParamField>
 
 <ParamField path="Extractor" type="extractors.Extractor" default='extractors.FromAuthHeader("Bearer")'>
-  Defines how to extract the key from the request. See [Extractors Guide](../guide/extractors).
+  Defines how to extract the key from the request. See [Extractors Guide](/guides/extractors).
 </ParamField>
 
 <ParamField path="Realm" type="string" >
@@ -339,7 +339,7 @@ curl --cookie "access_token=my-secret-key" http://localhost:3000/protected
 
 ## Extractors
 
-KeyAuth uses the shared [extractors package](../guide/extractors). Common extractors:
+KeyAuth uses the shared [extractors package](/guides/extractors). Common extractors:
 
 - `extractors.FromAuthHeader("Bearer")` - Authorization header
 - `extractors.FromHeader("X-API-Key")` - Custom header
@@ -349,4 +349,4 @@ KeyAuth uses the shared [extractors package](../guide/extractors). Common extrac
 - `extractors.Chain(...)` - Try multiple sources
 - `extractors.FromCustom(func)` - Custom logic
 
-See the [Extractors Guide](../guide/extractors) for details.
+See the [Extractors Guide](/guides/extractors) for details.

@@ -1,0 +1,168 @@
+---
+title: Response Time
+description: Measure request handling duration and add response time headers
+---
+
+Response Time middleware for Fiber measures how long it takes to process a request and writes the duration to a configurable response header. This is useful for monitoring and debugging performance issues.
+
+## Installation
+
+```bash
+go get -u github.com/gofiber/fiber/v3
+go get -u github.com/gofiber/fiber/v3/middleware/responsetime
+```
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Usage
+
+### Basic Usage
+
+```go
+package main
+
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/responsetime"
+)
+
+func main() {
+    app := fiber.New()
+
+    // Add response time header to all responses
+    app.Use(responsetime.New())
+
+    app.Get("/", func(c fiber.Ctx) error {
+        return c.SendString("Hello, World!")
+    })
+
+    app.Listen(":3000")
+}
+```
+
+When you make a request, the response will include a header showing the processing time:
+
+```bash
+curl -I http://localhost:3000
+# Response includes:
+# X-Response-Time: 0.523ms
+```
+
+### Custom Header Name
+
+```go
+app.Use(responsetime.New(responsetime.Config{
+    Header: "X-Processing-Time",
+}))
+```
+
+### Conditional Measurement
+
+```go
+// Only measure response time for API routes
+app.Use(responsetime.New(responsetime.Config{
+    Next: func(c fiber.Ctx) bool {
+        return !strings.HasPrefix(c.Path(), "/api")
+    },
+}))
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+  Function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="Header" type="string">
+  Header key used to set the response time. Default: `X-Response-Time`.
+</ParamField>
+
+## Default Configuration
+
+```go
+var ConfigDefault = Config{
+    Next:   nil,
+    Header: fiber.HeaderXResponseTime, // "X-Response-Time"
+}
+```
+
+## Common Use Cases
+
+### Monitoring API Performance
+
+```go
+app.Use(responsetime.New())
+
+// All responses now include timing information
+app.Get("/api/users", func(c fiber.Ctx) error {
+    // Slow database query
+    users := db.GetUsers()
+    return c.JSON(users)
+})
+// Response header: X-Response-Time: 45.2ms
+```
+
+### Custom Logging
+
+```go
+app.Use(responsetime.New(responsetime.Config{
+    Header: "X-Duration",
+}))
+
+app.Use(func(c fiber.Ctx) error {
+    err := c.Next()
+    
+    // Log the response time
+    duration := c.Get("X-Duration")
+    log.Printf("Request to %s took %s", c.Path(), duration)
+    
+    return err
+})
+```
+
+### Performance Thresholds
+
+```go
+app.Use(responsetime.New())
+
+app.Use(func(c fiber.Ctx) error {
+    err := c.Next()
+    
+    // Parse response time and alert if slow
+    responseTime := c.Get("X-Response-Time")
+    if strings.Contains(responseTime, "ms") {
+        // Extract milliseconds and check threshold
+        // Alert if > 100ms
+    }
+    
+    return err
+})
+```
+
+## How It Works
+
+The middleware:
+1. Records the start time when the request arrives
+2. Calls the next handler in the chain
+3. Calculates the duration after the handler completes
+4. Formats the duration (e.g., "1.234ms", "45.6µs", "1.23s")
+5. Sets the configured header with the formatted duration
+
+The time measured includes all middleware and handlers in the chain after this middleware is registered.
+
+## Tips
+
+- Place this middleware early in your middleware stack to measure total request time
+- Place it later to measure only specific handler execution time
+- Use with monitoring tools that parse response headers
+- Combine with logger middleware to correlate logs with timing data
+- Consider removing or disabling in production if you don't need the overhead
+
+## See Also
+
+- [Logger Middleware](/middleware/logger) - For comprehensive request logging
+- [Pprof Middleware](/middleware/pprof) - For detailed performance profiling

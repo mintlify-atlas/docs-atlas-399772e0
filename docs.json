@@ -135,6 +135,7 @@
               "middleware/recover",
               "middleware/redirect",
               "middleware/requestid",
+              "middleware/responsetime",
               "middleware/rewrite",
               "middleware/session",
               "middleware/skip",
