@@ -1,0 +1,279 @@
+---
+title: Overview
+description: Introduction to the Fiber HTTP client
+---
+
+# HTTP Client Overview
+
+The Fiber HTTP client is a high-performance HTTP client built on top of [fasthttp](https://github.com/valyala/fasthttp). It provides a clean, intuitive API for making HTTP requests while maintaining the speed and efficiency that Fiber is known for.
+
+## Features
+
+<CardGroup cols={2}>
+  <Card title="High Performance" icon="bolt">
+    Built on fasthttp for minimal overhead and maximum throughput
+  </Card>
+  <Card title="Connection Pooling" icon="network-wired">
+    Automatic connection reuse and pooling for efficient resource usage
+  </Card>
+  <Card title="Flexible Configuration" icon="sliders">
+    Set global defaults and override per-request as needed
+  </Card>
+  <Card title="Request/Response Hooks" icon="hook">
+    Intercept and modify requests and responses with custom logic
+  </Card>
+</CardGroup>
+
+## Quick Start
+
+Create a client and make your first request:
+
+```go
+import "github.com/gofiber/fiber/v3/client"
+
+func main() {
+    // Create a new client
+    c := client.New()
+
+    // Make a GET request
+    resp, err := c.Get("https://httpbin.org/get")
+    if err != nil {
+        panic(err)
+    }
+    defer resp.Close()
+
+    fmt.Printf("Status: %d\n", resp.StatusCode())
+    fmt.Printf("Body: %s\n", resp.String())
+}
+```
+
+## Creating a Client
+
+The client package provides several ways to create a client instance:
+
+### New
+
+Create a standard client with default settings:
+
+```go
+c := client.New()
+```
+
+**Signature:**
+```go
+func New() *Client
+```
+
+### NewWithClient
+
+Wrap an existing `fasthttp.Client` to share connection pools and settings:
+
+```go
+fasthttpClient := &fasthttp.Client{
+    MaxConnsPerHost: 100,
+}
+c := client.NewWithClient(fasthttpClient)
+```
+
+**Signature:**
+```go
+func NewWithClient(c *fasthttp.Client) *Client
+```
+
+### NewWithHostClient
+
+Create a client for a specific host using `fasthttp.HostClient`:
+
+```go
+hostClient := &fasthttp.HostClient{
+    Addr: "api.example.com:443",
+    IsTLS: true,
+}
+c := client.NewWithHostClient(hostClient)
+```
+
+**Signature:**
+```go
+func NewWithHostClient(c *fasthttp.HostClient) *Client
+```
+
+### NewWithLBClient
+
+Create a client with load balancing across multiple hosts:
+
+```go
+lbClient := &fasthttp.LBClient{
+    Clients: []fasthttp.BalancingClient{
+        &fasthttp.HostClient{Addr: "server1.example.com:443"},
+        &fasthttp.HostClient{Addr: "server2.example.com:443"},
+    },
+}
+c := client.NewWithLBClient(lbClient)
+```
+
+**Signature:**
+```go
+func NewWithLBClient(c *fasthttp.LBClient) *Client
+```
+
+## Basic Configuration
+
+Configure the client with common settings:
+
+```go
+c := client.New()
+
+// Set base URL
+c.SetBaseURL("https://api.example.com")
+
+// Set timeout
+c.SetTimeout(30 * time.Second)
+
+// Set default headers
+c.SetHeader("User-Agent", "MyApp/1.0")
+c.SetHeader("Accept", "application/json")
+
+// Set default query parameters
+c.SetParam("api_key", "your-api-key")
+```
+
+### Configuration Methods
+
+<ParamField path="SetBaseURL" type="func(url string) *Client">
+  Set the base URL prefix for all requests
+</ParamField>
+
+<ParamField path="SetTimeout" type="func(t time.Duration) *Client">
+  Set the default timeout for all requests
+</ParamField>
+
+<ParamField path="SetUserAgent" type="func(ua string) *Client">
+  Set the User-Agent header for all requests
+</ParamField>
+
+<ParamField path="SetReferer" type="func(r string) *Client">
+  Set the Referer header for all requests
+</ParamField>
+
+<ParamField path="SetHeader" type="func(key, val string) *Client">
+  Set a default header for all requests
+</ParamField>
+
+<ParamField path="SetHeaders" type="func(h map[string]string) *Client">
+  Set multiple default headers at once
+</ParamField>
+
+<ParamField path="SetParam" type="func(key, val string) *Client">
+  Set a default query parameter for all requests
+</ParamField>
+
+<ParamField path="SetParams" type="func(m map[string]string) *Client">
+  Set multiple default query parameters at once
+</ParamField>
+
+## Creating Requests
+
+The client provides two ways to make requests:
+
+### Direct Methods (Axios-style)
+
+Make requests directly from the client:
+
+```go
+c := client.New()
+
+// Simple GET request
+resp, err := c.Get("https://httpbin.org/get")
+
+// POST with body and headers
+resp, err := c.Post("https://httpbin.org/post", client.Config{
+    Body: map[string]string{"name": "John"},
+    Header: map[string]string{"Content-Type": "application/json"},
+})
+```
+
+### Request Builder (R() method)
+
+Build requests step by step:
+
+```go
+c := client.New()
+
+resp, err := c.R().
+    SetHeader("Authorization", "Bearer token").
+    SetParam("page", "1").
+    SetJSON(map[string]string{"query": "fiber"}).
+    Post("https://api.example.com/search")
+```
+
+**Signature:**
+```go
+func (c *Client) R() *Request
+```
+
+## Default Client
+
+The package provides a default client for convenience:
+
+```go
+// Get the default client
+c := client.C()
+
+// Or use package-level functions
+resp, err := client.Get("https://httpbin.org/get")
+```
+
+**Available Functions:**
+```go
+func C() *Client
+func Get(url string, cfg ...Config) (*Response, error)
+func Post(url string, cfg ...Config) (*Response, error)
+func Put(url string, cfg ...Config) (*Response, error)
+func Patch(url string, cfg ...Config) (*Response, error)
+func Delete(url string, cfg ...Config) (*Response, error)
+func Head(url string, cfg ...Config) (*Response, error)
+func Options(url string, cfg ...Config) (*Response, error)
+```
+
+## Resource Management
+
+The client uses object pooling to reduce allocations:
+
+```go
+// Acquire a request from the pool
+req := client.AcquireRequest()
+defer client.ReleaseRequest(req)
+
+// Set client and configure request
+req.SetClient(c).
+    SetURL("https://httpbin.org/get").
+    SetMethod(fiber.MethodGet)
+
+// Send the request
+resp, err := req.Send()
+if err != nil {
+    panic(err)
+}
+defer resp.Close() // Automatically releases both request and response
+```
+
+<Warning>
+  Always call `resp.Close()` when using the client to return resources to the pool. Do not use requests or responses after releasing them.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Making Requests" icon="paper-plane" href="./request">
+    Learn how to configure and send HTTP requests
+  </Card>
+  <Card title="Handling Responses" icon="inbox" href="./response">
+    Parse and process response data
+  </Card>
+  <Card title="Request/Response Hooks" icon="hook" href="./hooks">
+    Intercept and modify requests and responses
+  </Card>
+  <Card title="Examples" icon="code" href="./examples">
+    Complete working examples and patterns
+  </Card>
+</CardGroup>

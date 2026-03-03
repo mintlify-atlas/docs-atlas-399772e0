@@ -1,0 +1,452 @@
+---
+title: Utility Functions
+description: Learn about Fiber's utility functions for type conversion, generic helpers, and common operations
+---
+
+## Overview
+
+Fiber provides several utility functions to simplify common tasks like type conversion, working with context values, and pattern matching. These utilities are designed for performance and ease of use.
+
+## Generic Type Conversion
+
+### Convert
+
+Convert strings to specific types with error handling and optional defaults:
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/google/uuid"
+)
+
+app.Get("/user/:id", func(c fiber.Ctx) error {
+    // Convert to UUID
+    userID, err := fiber.Convert(c.Params("id"), uuid.Parse)
+    if err != nil {
+        return c.Status(400).SendString("Invalid user ID")
+    }
+    
+    return c.JSON(fiber.Map{"userId": userID})
+})
+```
+
+#### With Default Values
+
+```go
+app.Get("/search", func(c fiber.Ctx) error {
+    // Parse with default fallback
+    page, _ := fiber.Convert(
+        c.Query("page"),
+        strconv.Atoi,
+        1, // Default to page 1 on error
+    )
+    
+    return c.JSON(fiber.Map{"page": page})
+})
+```
+
+#### Custom Converters
+
+```go
+import "go.mongodb.org/mongo-driver/bson/primitive"
+
+app.Get("/document/:id", func(c fiber.Ctx) error {
+    // Convert to MongoDB ObjectID
+    objectID, err := fiber.Convert(
+        c.Params("id"),
+        primitive.ObjectIDFromHex,
+    )
+    if err != nil {
+        return c.Status(400).SendString("Invalid document ID")
+    }
+    
+    return c.JSON(fiber.Map{"documentId": objectID})
+})
+```
+
+## Generic Context Helpers
+
+### Params
+
+Retrieve route parameters as specific types:
+
+```go
+app.Get("/user/:userId/post/:postId", func(c fiber.Ctx) error {
+    // Parse as integers
+    userID := fiber.Params[int](c, "userId")
+    postID := fiber.Params[int](c, "postId")
+    
+    // With defaults
+    page := fiber.Params[int](c, "page", 1)
+    
+    return c.JSON(fiber.Map{
+        "userId": userID,
+        "postId": postID,
+        "page":   page,
+    })
+})
+```
+
+#### Supported Types
+
+```go
+// Integer types
+id := fiber.Params[int](c, "id")
+count := fiber.Params[int64](c, "count")
+index := fiber.Params[uint](c, "index")
+
+// Float types
+price := fiber.Params[float64](c, "price")
+ratio := fiber.Params[float32](c, "ratio")
+
+// String and bytes
+name := fiber.Params[string](c, "name")
+data := fiber.Params[[]byte](c, "data")
+
+// Boolean
+enabled := fiber.Params[bool](c, "enabled")
+```
+
+### Query
+
+Retrieve query parameters as specific types:
+
+```go
+app.Get("/search", func(c fiber.Ctx) error {
+    // Parse query parameters
+    query := fiber.Query[string](c, "q")
+    page := fiber.Query[int](c, "page", 1)
+    limit := fiber.Query[int](c, "limit", 20)
+    sortDesc := fiber.Query[bool](c, "desc", false)
+    
+    results := performSearch(query, page, limit, sortDesc)
+    return c.JSON(results)
+})
+
+// GET /search?q=fiber&page=2&limit=50&desc=true
+```
+
+#### Validation with Defaults
+
+```go
+app.Get("/products", func(c fiber.Ctx) error {
+    // Parse with sensible defaults
+    page := fiber.Query[int](c, "page", 1)
+    limit := fiber.Query[int](c, "limit", 20)
+    
+    // Validate ranges
+    if page < 1 {
+        page = 1
+    }
+    if limit < 1 || limit > 100 {
+        limit = 20
+    }
+    
+    return c.JSON(fiber.Map{
+        "page":  page,
+        "limit": limit,
+    })
+})
+```
+
+### GetReqHeader
+
+Retrieve headers as specific types:
+
+```go
+app.Get("/api/data", func(c fiber.Ctx) error {
+    // Parse headers
+    requestID := fiber.GetReqHeader[int](c, "X-Request-ID")
+    apiVersion := fiber.GetReqHeader[string](c, "X-API-Version", "v1")
+    
+    return c.JSON(fiber.Map{
+        "requestId":  requestID,
+        "apiVersion": apiVersion,
+    })
+})
+
+// Request:
+// X-Request-ID: 12345
+// X-API-Version: v2
+```
+
+### Locals
+
+Store and retrieve typed values in request context:
+
+```go
+app.Use(func(c fiber.Ctx) error {
+    // Set typed local values
+    fiber.Locals[string](c, "userId", "user-123")
+    fiber.Locals[int](c, "requestCount", 42)
+    fiber.Locals[bool](c, "authenticated", true)
+    
+    return c.Next()
+})
+
+app.Get("/profile", func(c fiber.Ctx) error {
+    // Get typed local values
+    userID := fiber.Locals[string](c, "userId")
+    count := fiber.Locals[int](c, "requestCount")
+    authenticated := fiber.Locals[bool](c, "authenticated")
+    
+    return c.JSON(fiber.Map{
+        "userId":        userID,
+        "requestCount":  count,
+        "authenticated": authenticated,
+    })
+})
+```
+
+#### Complex Types
+
+```go
+type User struct {
+    ID    string
+    Name  string
+    Email string
+}
+
+app.Use(func(c fiber.Ctx) error {
+    user := User{
+        ID:    "123",
+        Name:  "John Doe",
+        Email: "john@example.com",
+    }
+    
+    // Store struct
+    fiber.Locals[User](c, "user", user)
+    
+    return c.Next()
+})
+
+app.Get("/me", func(c fiber.Ctx) error {
+    // Retrieve struct
+    user := fiber.Locals[User](c, "user")
+    
+    return c.JSON(user)
+})
+```
+
+## Context Value Helpers
+
+### ValueFromContext
+
+Retrieve values from any context type (Fiber, fasthttp, or standard context):
+
+```go
+import "context"
+
+// Works with fiber.Ctx
+value, ok := fiber.ValueFromContext[string](c, "key")
+
+// Works with *fasthttp.RequestCtx  
+value, ok := fiber.ValueFromContext[string](c.RequestCtx(), "key")
+
+// Works with context.Context
+ctx := context.WithValue(context.Background(), "key", "value")
+value, ok := fiber.ValueFromContext[string](ctx, "key")
+```
+
+### StoreInContext
+
+Store values in both Fiber locals and Go context:
+
+```go
+app.Use(func(c fiber.Ctx) error {
+    // Store in both c.Locals() and context.Context
+    fiber.StoreInContext(c, "requestId", "req-123")
+    fiber.StoreInContext(c, "timestamp", time.Now())
+    
+    return c.Next()
+})
+
+app.Get("/data", func(c fiber.Ctx) error {
+    // Available via c.Locals()
+    requestId := c.Locals("requestId").(string)
+    
+    // Also available via context.Context (if PassLocalsToContext is enabled)
+    ctx := c.Context()
+    timestamp := ctx.Value("timestamp").(time.Time)
+    
+    return c.JSON(fiber.Map{
+        "requestId": requestId,
+        "timestamp": timestamp,
+    })
+})
+```
+
+<Note>
+`StoreInContext` only stores in `context.Context` if `PassLocalsToContext` is enabled in app config.
+</Note>
+
+## Pattern Matching
+
+### RoutePatternMatch
+
+Check if a path matches a Fiber route pattern:
+
+```go
+// Simple patterns
+fiber.RoutePatternMatch("/user/john", "/user/:name")  // true
+fiber.RoutePatternMatch("/user/123", "/user/:id")     // true
+fiber.RoutePatternMatch("/admin", "/user/:name")      // false
+
+// Wildcard patterns
+fiber.RoutePatternMatch("/files/docs/readme.md", "/files/*") // true
+fiber.RoutePatternMatch("/api/v1/users", "/api/*")           // true
+
+// Optional segments
+fiber.RoutePatternMatch("/api/users", "/api/:section?")     // true
+fiber.RoutePatternMatch("/api", "/api/:section?")           // true
+```
+
+#### Case Sensitivity
+
+```go
+// Case-insensitive (default)
+fiber.RoutePatternMatch("/User/John", "/user/:name") // true
+
+// Case-sensitive
+fiber.RoutePatternMatch(
+    "/User/John",
+    "/user/:name",
+    fiber.Config{CaseSensitive: true},
+) // false
+```
+
+#### Practical Usage
+
+```go
+app.Use(func(c fiber.Ctx) error {
+    path := c.Path()
+    
+    // Check if path matches admin routes
+    if fiber.RoutePatternMatch(path, "/admin/*") {
+        // Require admin authentication
+        if !isAdmin(c) {
+            return c.Status(403).SendString("Forbidden")
+        }
+    }
+    
+    // Check if path matches API versioning
+    if fiber.RoutePatternMatch(path, "/api/v:version/*") {
+        version := extractVersion(path)
+        if version != "1" && version != "2" {
+            return c.Status(400).SendString("Unsupported API version")
+        }
+    }
+    
+    return c.Next()
+})
+```
+
+## HTTP Method Helpers
+
+### IsMethodSafe
+
+Check if an HTTP method is safe (read-only):
+
+```go
+import "github.com/gofiber/fiber/v3"
+
+app.Use(func(c fiber.Ctx) error {
+    method := c.Method()
+    
+    if fiber.IsMethodSafe(method) {
+        // GET, HEAD, OPTIONS, TRACE - no side effects
+        // Can be cached, no CSRF protection needed
+    } else {
+        // POST, PUT, DELETE, PATCH - may modify state
+        // Require CSRF protection
+    }
+    
+    return c.Next()
+})
+```
+
+Safe methods (RFC 9110):
+- GET
+- HEAD  
+- OPTIONS
+- TRACE
+
+### IsMethodIdempotent
+
+Check if an HTTP method is idempotent (repeatable):
+
+```go
+app.Use(func(c fiber.Ctx) error {
+    method := c.Method()
+    
+    if fiber.IsMethodIdempotent(method) {
+        // GET, HEAD, OPTIONS, TRACE, PUT, DELETE
+        // Safe to retry on failure
+    } else {
+        // POST, PATCH
+        // Be careful with retries
+    }
+    
+    return c.Next()
+})
+```
+
+Idempotent methods (RFC 9110):
+- All safe methods (GET, HEAD, OPTIONS, TRACE)
+- PUT
+- DELETE
+
+## Type Constraints
+
+Fiber defines generic type constraints for type-safe operations:
+
+```go
+// GenericType - All supported types
+type GenericType interface {
+    GenericTypeInteger | GenericTypeFloat | bool | string | []byte
+}
+
+// GenericTypeInteger - All integer types
+type GenericTypeInteger interface {
+    int | int8 | int16 | int32 | int64 |
+    uint | uint8 | uint16 | uint32 | uint64
+}
+
+// GenericTypeFloat - Floating point types  
+type GenericTypeFloat interface {
+    float32 | float64
+}
+```
+
+### Usage in Custom Functions
+
+```go
+func ParseParam[T fiber.GenericType](c fiber.Ctx, key string) (T, error) {
+    value := c.Params(key)
+    
+    // Uses internal genericParseType
+    return fiber.Params[T](c, key), nil
+}
+
+// Works with all supported types
+id := ParseParam[int](c, "id")
+price := ParseParam[float64](c, "price")
+name := ParseParam[string](c, "name")
+```
+
+## Best Practices
+
+1. **Use generics for type safety** - Avoid type assertions when possible
+2. **Provide sensible defaults** - Use default parameters for optional values
+3. **Validate converted values** - Check ranges and formats after conversion
+4. **Handle errors gracefully** - Return meaningful error messages
+5. **Use RoutePatternMatch for authorization** - Protect routes based on patterns
+6. **Prefer Locals for request-scoped data** - Better than global variables
+7. **Use IsMethodSafe/IsMethodIdempotent** - For correct HTTP semantics
+
+## See Also
+
+- [Context API](/api/ctx)
+- [Request Validation](/guides/validation)
+- [Type Conversion (gofiber/utils)](https://github.com/gofiber/utils)
+- [RFC 9110 - HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110)

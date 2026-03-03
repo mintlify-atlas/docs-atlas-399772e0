@@ -1,0 +1,319 @@
+---
+title: Idempotency
+description: Prevent duplicate request processing with idempotency keys
+---
+
+The Idempotency middleware helps build fault-tolerant APIs by ensuring duplicate requests don't trigger the same action multiple times on the server. This is especially useful for handling retries after network failures.
+
+## Installation
+
+```bash
+go get -u github.com/gofiber/fiber/v3
+go get -u github.com/gofiber/fiber/v3/middleware/idempotency
+```
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+func IsFromCache(c fiber.Ctx) bool
+func WasPutToCache(c fiber.Ctx) bool
+```
+
+## HTTP Method Categories
+
+According to [RFC 7231 §4.2.2](https://tools.ietf.org/html/rfc7231#section-4.2.2):
+
+- **Safe Methods** (do not modify server state): `GET`, `HEAD`, `OPTIONS`, `TRACE`
+- **Idempotent Methods** (identical requests have the same effect): all safe methods + `PUT`, `DELETE`
+
+## Usage
+
+### Basic Usage (Skip Safe Methods)
+
+```go
+package main
+
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/idempotency"
+)
+
+func main() {
+    app := fiber.New()
+
+    // Skip safe methods (GET, HEAD, OPTIONS, TRACE)
+    app.Use(idempotency.New())
+
+    app.Post("/payments", func(c fiber.Ctx) error {
+        // Process payment - will be cached by idempotency key
+        return c.JSON(fiber.Map{"status": "processed"})
+    })
+
+    app.Listen(":3000")
+}
+```
+
+### Skip Idempotent Methods
+
+```go
+app.Use(idempotency.New(idempotency.Config{
+    Next: func(c fiber.Ctx) bool {
+        // Skip all idempotent methods (safe + PUT, DELETE)
+        return fiber.IsMethodIdempotent(c.Method())
+    },
+}))
+```
+
+### Custom Configuration
+
+```go
+app.Use(idempotency.New(idempotency.Config{
+    Lifetime:  42 * time.Minute,
+    KeyHeader: "X-Idempotency-Key",
+    KeyHeaderValidate: func(k string) error {
+        if len(k) != 36 {
+            return errors.New("key must be 36 characters")
+        }
+        return nil
+    },
+    KeepResponseHeaders: []string{"X-Request-Id", "X-Trace-Id"},
+}))
+```
+
+### With Custom Storage
+
+```go
+import "github.com/gofiber/storage/redis/v3"
+
+store := redis.New(redis.Config{
+    Host:     "127.0.0.1",
+    Port:     6379,
+    Database: 0,
+})
+
+app.Use(idempotency.New(idempotency.Config{
+    Storage: store,
+}))
+```
+
+### Check Cache Status
+
+```go
+app.Post("/api/orders", func(c fiber.Ctx) error {
+    // Check if response was served from cache
+    if idempotency.IsFromCache(c) {
+        log.Println("Response served from cache")
+    }
+
+    // Check if response was stored to cache
+    if idempotency.WasPutToCache(c) {
+        log.Println("Response stored to cache")
+    }
+
+    return c.JSON(fiber.Map{"order_id": "12345"})
+})
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="func(c fiber.Ctx) bool { return fiber.IsMethodSafe(c.Method()) }">
+  Function to skip this middleware when it returns true. Default skips safe HTTP methods.
+</ParamField>
+
+<ParamField path="Lifetime" type="time.Duration" default="30 * time.Minute">
+  Maximum lifetime of an idempotency key in storage.
+</ParamField>
+
+<ParamField path="KeyHeader" type="string" >
+  Name of the header containing the idempotency key.
+</ParamField>
+
+<ParamField path="KeyHeaderValidate" type="func(string) error" default="UUID length check (36 characters)">
+  Function to validate the idempotency key format.
+</ParamField>
+
+<ParamField path="KeepResponseHeaders" type="[]string" default="nil">
+  List of headers to preserve from the original response. `nil` keeps all headers.
+</ParamField>
+
+<ParamField path="DisableValueRedaction" type="bool" default="false">
+  Disables idempotency key redaction in logs and error messages. Use only for debugging.
+</ParamField>
+
+<ParamField path="Lock" type="Locker" default="In-memory locker">
+  Locks an idempotency key to prevent race conditions.
+</ParamField>
+
+<ParamField path="Storage" type="fiber.Storage" default="In-memory storage">
+  Storage backend for caching response data.
+</ParamField>
+
+## Default Configuration
+
+```go
+var ConfigDefault = Config{
+    Next: func(c fiber.Ctx) bool {
+        // Skip middleware for safe methods per RFC 7231 §4.2.2
+        return fiber.IsMethodSafe(c.Method())
+    },
+
+    Lifetime: 30 * time.Minute,
+
+    KeyHeader: "X-Idempotency-Key",
+    KeyHeaderValidate: func(k string) error {
+        if l, wl := len(k), 36; l != wl { // UUID length is 36 chars
+            return fmt.Errorf("%w: invalid length: %d != %d", ErrInvalidIdempotencyKey, l, wl)
+        }
+        return nil
+    },
+
+    KeepResponseHeaders: nil,
+
+    Lock: nil, // Set in configDefault
+    Storage: nil, // Set in configDefault
+    DisableValueRedaction: false,
+}
+```
+
+## Best Practices
+
+### Generate Strong Idempotency Keys
+
+```go
+import "github.com/google/uuid"
+
+// Client-side: Generate UUID v4
+idempotencyKey := uuid.New().String()
+
+req, _ := http.NewRequest("POST", "http://api.example.com/payments", body)
+req.Header.Set("X-Idempotency-Key", idempotencyKey)
+```
+
+### Validate Key Format
+
+```go
+import "github.com/google/uuid"
+
+app.Use(idempotency.New(idempotency.Config{
+    KeyHeaderValidate: func(k string) error {
+        if _, err := uuid.Parse(k); err != nil {
+            return fmt.Errorf("invalid UUID format: %w", err)
+        }
+        return nil
+    },
+}))
+```
+
+### Keep Important Headers
+
+```go
+app.Use(idempotency.New(idempotency.Config{
+    KeepResponseHeaders: []string{
+        "X-Request-Id",
+        "X-Trace-Id",
+        "X-RateLimit-Remaining",
+    },
+}))
+```
+
+### Different Lifetimes for Different Endpoints
+
+```go
+// Short lifetime for payments
+app.Post("/payments", idempotency.New(idempotency.Config{
+    Lifetime: 10 * time.Minute,
+}), handlePayment)
+
+// Longer lifetime for reports
+app.Post("/reports", idempotency.New(idempotency.Config{
+    Lifetime: 60 * time.Minute,
+}), handleReport)
+```
+
+## Common Patterns
+
+### Payment Processing
+
+```go
+app.Post("/api/payments", func(c fiber.Ctx) error {
+    var payment Payment
+    if err := c.BodyParser(&payment); err != nil {
+        return err
+    }
+
+    // Process payment (will be cached automatically)
+    result := processPayment(payment)
+
+    return c.JSON(result)
+})
+```
+
+### Order Creation
+
+```go
+app.Post("/api/orders", func(c fiber.Ctx) error {
+    var order Order
+    if err := c.BodyParser(&order); err != nil {
+        return err
+    }
+
+    // Create order - duplicate requests return cached response
+    orderID, err := createOrder(order)
+    if err != nil {
+        return err
+    }
+
+    return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+        "order_id": orderID,
+        "cached":   idempotency.IsFromCache(c),
+    })
+})
+```
+
+### With Redis Storage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3/middleware/idempotency"
+    "github.com/gofiber/storage/redis/v3"
+)
+
+// Use Redis for distributed systems
+redisStore := redis.New(redis.Config{
+    Host:      "127.0.0.1",
+    Port:      6379,
+    Database:  0,
+    Reset:     false,
+})
+
+app.Use(idempotency.New(idempotency.Config{
+    Storage:  redisStore,
+    Lifetime: 30 * time.Minute,
+}))
+```
+
+## Testing
+
+```bash
+# First request - processed
+curl -X POST http://localhost:3000/payments \
+  -H "X-Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000" \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 100}'
+
+# Second request - returns cached response
+curl -X POST http://localhost:3000/payments \
+  -H "X-Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000" \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 100}'
+```
+
+## Security Considerations
+
+- Idempotency keys are redacted in logs by default
+- Use `DisableValueRedaction: true` only in development
+- Validate key format to prevent attacks
+- Use appropriate `Lifetime` to balance storage and functionality
+- Ensure keys are generated client-side with sufficient entropy
+- Consider scoping keys to user/session for multi-tenant applications

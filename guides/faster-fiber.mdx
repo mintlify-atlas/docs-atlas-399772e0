@@ -1,0 +1,364 @@
+---
+title: Performance Optimization
+description: Techniques to maximize Fiber application performance through custom encoders, zero-allocation patterns, and best practices
+---
+
+## Custom JSON Encoder/Decoder
+
+Fiber defaults to the standard `encoding/json` package for stability and reliability. For performance-critical applications, consider faster alternatives:
+
+### Recommended Libraries
+
+- **[goccy/go-json](https://github.com/goccy/go-json)** - Fast, drop-in replacement
+- **[bytedance/sonic](https://github.com/bytedance/sonic)** - JIT-based, extremely fast
+- **[segmentio/encoding](https://github.com/segmentio/encoding)** - Optimized codegen
+- **[minio/simdjson-go](https://github.com/minio/simdjson-go)** - SIMD-accelerated parsing
+
+### Configuration
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/goccy/go-json"
+)
+
+func main() {
+    app := fiber.New(fiber.Config{
+        JSONEncoder: json.Marshal,
+        JSONDecoder: json.Unmarshal,
+    })
+    
+    app.Get("/data", func(c fiber.Ctx) error {
+        return c.JSON(fiber.Map{"fast": true})
+    })
+    
+    app.Listen(":3000")
+}
+```
+
+### Benchmarking Results
+
+Typical performance improvements with alternative JSON libraries:
+
+| Library | Encoding Speed | Decoding Speed |
+|---------|---------------|----------------|
+| encoding/json (stdlib) | Baseline | Baseline |
+| goccy/go-json | 2-3x faster | 2-3x faster |
+| bytedance/sonic | 3-5x faster | 3-4x faster |
+| segmentio/encoding | 2-4x faster | 2-3x faster |
+
+## Binary Serialization Formats
+
+For maximum performance, use binary formats instead of JSON:
+
+### MsgPack
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/shamaton/msgpack/v3"
+)
+
+app := fiber.New(fiber.Config{
+    MsgPackEncoder: msgpack.Marshal,
+    MsgPackDecoder: msgpack.Unmarshal,
+})
+
+app.Post("/msgpack", func(c fiber.Ctx) error {
+    var data MyStruct
+    if err := c.Bind().MsgPack(&data); err != nil {
+        return err
+    }
+    return c.MsgPack(data) // 30-50% smaller than JSON
+})
+```
+
+### CBOR
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/fxamacker/cbor/v2"
+)
+
+app := fiber.New(fiber.Config{
+    CBOREncoder: cbor.Marshal,
+    CBORDecoder: cbor.Unmarshal,
+})
+
+app.Post("/cbor", func(c fiber.Ctx) error {
+    var data MyStruct
+    if err := c.Bind().CBOR(&data); err != nil {
+        return err
+    }
+    return c.CBOR(data) // Compact binary encoding
+})
+```
+
+## Zero-Allocation Patterns
+
+Fiber is built on `fasthttp` which uses extensive pooling to minimize allocations.
+
+### String Conversion
+
+Fiber provides zero-allocation string/byte conversions internally:
+
+```go
+// The framework internally uses:
+// - utils.UnsafeString() to convert []byte to string without allocation
+// - utils.UnsafeBytes() to convert string to []byte without allocation
+
+// These are used throughout the codebase for performance
+headerValue := c.Get("Content-Type") // Zero-allocation retrieval
+```
+
+### Bind Pool Usage
+
+Fiber uses sync.Pool for binders to reduce allocations:
+
+```go
+// Internal implementation (for reference)
+var bindPool = sync.Pool{
+    New: func() any {
+        return &Bind{
+            dontHandleErrs: true,
+        }
+    },
+}
+
+// Binders are acquired from pool and released after use
+bind := binder.GetFromThePool[*binder.JSONBinding](&binder.JSONBinderPool)
+defer binder.PutToThePool(&binder.JSONBinderPool, bind)
+```
+
+### Custom Binder Pooling
+
+When implementing custom binders, use pooling:
+
+```go
+import "sync"
+
+type MyBinder struct {
+    buffer []byte
+}
+
+func (b *MyBinder) Reset() {
+    b.buffer = b.buffer[:0]
+}
+
+var myBinderPool = sync.Pool{
+    New: func() any {
+        return &MyBinder{
+            buffer: make([]byte, 0, 1024),
+        }
+    },
+}
+
+func (b *MyBinder) Parse(c fiber.Ctx, out any) error {
+    binder := myBinderPool.Get().(*MyBinder)
+    defer func() {
+        binder.Reset()
+        myBinderPool.Put(binder)
+    }()
+    
+    // Use binder.buffer for parsing
+    return nil
+}
+```
+
+## Immutable String Configuration
+
+By default, Fiber uses immutable strings which is safer but slightly slower:
+
+```go
+// Default (safe, immutable)
+app := fiber.New()
+
+// Mutable mode (faster, requires careful usage)
+app := fiber.New(fiber.Config{
+    Immutable: false,
+})
+```
+
+<Warning>
+**Immutable: false** can cause issues if you store request values beyond the handler scope. Only use when you understand the implications.
+</Warning>
+
+## Reduce Allocations in Handlers
+
+### Pre-allocate Slices
+
+```go
+app.Get("/users", func(c fiber.Ctx) error {
+    // Bad: grows dynamically
+    users := []User{}
+    
+    // Good: pre-allocate if size is known
+    users := make([]User, 0, 100)
+    
+    // Fetch and populate users
+    return c.JSON(users)
+})
+```
+
+### Reuse Buffers
+
+```go
+import "github.com/valyala/bytebufferpool"
+
+app.Get("/format", func(c fiber.Ctx) error {
+    buf := bytebufferpool.Get()
+    defer bytebufferpool.Put(buf)
+    
+    buf.WriteString("Formatted: ")
+    buf.WriteString(c.Params("value"))
+    
+    return c.SendString(buf.String())
+})
+```
+
+### Avoid String Concatenation
+
+```go
+// Bad: creates multiple allocations
+result := "Hello " + user.Name + "!"
+
+// Good: use strings.Builder
+var builder strings.Builder
+builder.WriteString("Hello ")
+builder.WriteString(user.Name)
+builder.WriteString("!")
+result := builder.String()
+
+// Or use fmt.Sprintf for readability
+result := fmt.Sprintf("Hello %s!", user.Name)
+```
+
+## Generic Type Helpers
+
+Fiber provides generic helpers that parse with minimal allocations:
+
+```go
+import "github.com/gofiber/utils/v2"
+
+app.Get("/user/:id", func(c fiber.Ctx) error {
+    // Efficient parsing using generics
+    userID, err := fiber.Convert(c.Params("id"), utils.ParseInt)
+    if err != nil {
+        return c.Status(400).SendString("Invalid user ID")
+    }
+    
+    // Use typed value
+    return c.JSON(fiber.Map{"userId": userID})
+})
+```
+
+## Fasthttp Optimizations
+
+Fiber is built on `fasthttp`, which provides several optimizations:
+
+### Host Client Pooling
+
+When making outbound requests:
+
+```go
+import "github.com/valyala/fasthttp"
+
+var client = &fasthttp.Client{
+    ReadTimeout:  time.Second * 10,
+    WriteTimeout: time.Second * 10,
+}
+
+app.Get("/proxy", func(c fiber.Ctx) error {
+    req := fasthttp.AcquireRequest()
+    resp := fasthttp.AcquireResponse()
+    defer fasthttp.ReleaseRequest(req)
+    defer fasthttp.ReleaseResponse(resp)
+    
+    req.SetRequestURI("https://api.example.com/data")
+    if err := client.Do(req, resp); err != nil {
+        return err
+    }
+    
+    return c.Send(resp.Body())
+})
+```
+
+## Profiling and Benchmarking
+
+### Enable pprof
+
+```go
+import _ "net/http/pprof"
+import "net/http"
+
+go func() {
+    http.ListenAndServe("localhost:6060", nil)
+}()
+
+// Access profiling data at http://localhost:6060/debug/pprof/
+```
+
+### Benchmark Your Routes
+
+```go
+func BenchmarkRoute(b *testing.B) {
+    app := fiber.New()
+    app.Get("/test", func(c fiber.Ctx) error {
+        return c.SendString("Hello, World!")
+    })
+    
+    b.ResetTimer()
+    b.RunParallel(func(pb *testing.PB) {
+        for pb.Next() {
+            req := httptest.NewRequest("GET", "/test", nil)
+            resp, _ := app.Test(req)
+            resp.Body.Close()
+        }
+    })
+}
+```
+
+## Configuration Tuning
+
+### Buffer Sizes
+
+```go
+app := fiber.New(fiber.Config{
+    ReadBufferSize:  8192,  // Increase for large requests
+    WriteBufferSize: 8192,  // Increase for large responses
+})
+```
+
+### Concurrency
+
+```go
+app := fiber.New(fiber.Config{
+    Concurrency: 256 * 1024, // Max concurrent connections
+})
+```
+
+### Disable Keep-Alive for Short Requests
+
+```go
+app := fiber.New(fiber.Config{
+    DisableKeepalive: true, // For microservices with short requests
+})
+```
+
+## Best Practices
+
+1. **Profile before optimizing** - Use pprof to find bottlenecks
+2. **Use binary formats** - MsgPack/CBOR are faster than JSON
+3. **Enable compression** - Use gzip middleware for text responses
+4. **Pool allocations** - Reuse buffers and objects
+5. **Batch database operations** - Reduce round trips
+6. **Use caching** - Cache frequent queries and computations
+7. **Optimize queries** - Database performance often matters more than framework performance
+
+## See Also
+
+- [Client REST Configuration](/client/rest#setjsonmarshal)
+- [App Configuration](/api/fiber#jsonencoder)
+- [Advanced Formatting](/guides/formatting)
+- [fasthttp Documentation](https://github.com/valyala/fasthttp)

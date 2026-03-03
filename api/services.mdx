@@ -1,0 +1,388 @@
+---
+title: Services
+description: Lifecycle management for background services in Fiber applications
+---
+
+The Services API provides a way to manage background services that run alongside your Fiber application. Services have their own lifecycle with startup and shutdown hooks, making them perfect for database connections, message queues, cron jobs, and other background tasks.
+
+## Overview
+
+Services in Fiber implement the `Service` interface and are automatically started when the application starts and gracefully shut down when the application stops. They're stored in the application's [State](/api/state) for easy access throughout your application.
+
+## Service Interface
+
+To create a service, implement the `Service` interface:
+
+```go title="Service Interface"
+type Service interface {
+    // Start starts the service, returning an error if it fails.
+    Start(ctx context.Context) error
+
+    // String returns a string representation of the service.
+    // Used to print a human-readable name in startup messages.
+    String() string
+
+    // State returns the current state of the service.
+    State(ctx context.Context) (string, error)
+
+    // Terminate terminates the service, returning an error if it fails.
+    Terminate(ctx context.Context) error
+}
+```
+
+### Start
+
+Called when the Fiber application starts. Use this to initialize connections, start goroutines, or perform other startup tasks.
+
+<ParamField path="ctx" type="context.Context" required>
+  Context for the startup operation. Check `ctx.Err()` to handle cancellation.
+</ParamField>
+
+**Returns:** An error if startup fails.
+
+### String
+
+Returns a human-readable name for the service. This is displayed in startup logs and used as the service identifier in State.
+
+**Returns:** The service name as a string.
+
+### State
+
+Returns the current state of the service (e.g., "running", "idle", "connected").
+
+<ParamField path="ctx" type="context.Context" required>
+  Context for the state check operation
+</ParamField>
+
+**Returns:** A string describing the current state, and an error if the state cannot be determined.
+
+### Terminate
+
+Called when the Fiber application shuts down. Use this to close connections, stop goroutines, and clean up resources.
+
+<ParamField path="ctx" type="context.Context" required>
+  Context for the shutdown operation. Check `ctx.Err()` to handle cancellation.
+</ParamField>
+
+**Returns:** An error if shutdown fails.
+
+## Configuration
+
+Configure services when creating your Fiber application:
+
+```go title="App Configuration"
+app := fiber.New(fiber.Config{
+    Services: []fiber.Service{
+        &DatabaseService{},
+        &CacheService{},
+        &MessageQueueService{},
+    },
+    ServicesStartupContextProvider: func() context.Context {
+        // Provide a custom context for service startup
+        ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+        return ctx
+    },
+    ServicesShutdownContextProvider: func() context.Context {
+        // Provide a custom context for service shutdown
+        ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+        return ctx
+    },
+})
+```
+
+### Config Fields
+
+<ParamField path="Services" type="[]Service">
+  Slice of services to start with the application
+</ParamField>
+
+<ParamField path="ServicesStartupContextProvider" type="func() context.Context">
+  Function that returns a context for service startup. If not provided, uses `context.Background()`.
+</ParamField>
+
+<ParamField path="ServicesShutdownContextProvider" type="func() context.Context">
+  Function that returns a context for service shutdown. If not provided, uses `context.Background()`.
+</ParamField>
+
+## Accessing Services
+
+Services are stored in the application's State and can be retrieved using type-safe generic functions:
+
+### GetService
+
+Retrieves a service from the application state.
+
+```go title="Signature"
+func GetService[T Service](s *State, key string) (T, bool)
+```
+
+<ParamField path="s" type="*State" required>
+  The application state
+</ParamField>
+
+<ParamField path="key" type="string" required>
+  The service key (usually the result of `String()` method)
+</ParamField>
+
+**Returns:** The service instance and a boolean indicating if it was found.
+
+```go title="Example"
+if db, ok := fiber.GetService[*DatabaseService](app.State(), "database"); ok {
+    // Use the database service
+    conn := db.Connection()
+}
+```
+
+### MustGetService
+
+Retrieves a service from the application state and panics if not found.
+
+```go title="Signature"
+func MustGetService[T Service](s *State, key string) T
+```
+
+<ParamField path="s" type="*State" required>
+  The application state
+</ParamField>
+
+<ParamField path="key" type="string" required>
+  The service key
+</ParamField>
+
+**Returns:** The service instance.
+
+**Panics:** If the service is not found.
+
+```go title="Example"
+db := fiber.MustGetService[*DatabaseService](app.State(), "database")
+conn := db.Connection()
+```
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "context"
+    "database/sql"
+    "fmt"
+    "time"
+
+    "github.com/gofiber/fiber/v3"
+    _ "github.com/lib/pq"
+)
+
+// DatabaseService manages a database connection pool
+type DatabaseService struct {
+    db  *sql.DB
+    dsn string
+}
+
+func NewDatabaseService(dsn string) *DatabaseService {
+    return &DatabaseService{dsn: dsn}
+}
+
+// Start initializes the database connection
+func (d *DatabaseService) Start(ctx context.Context) error {
+    var err error
+    d.db, err = sql.Open("postgres", d.dsn)
+    if err != nil {
+        return fmt.Errorf("failed to open database: %w", err)
+    }
+
+    // Test the connection
+    if err := d.db.PingContext(ctx); err != nil {
+        return fmt.Errorf("failed to ping database: %w", err)
+    }
+
+    // Configure connection pool
+    d.db.SetMaxOpenConns(25)
+    d.db.SetMaxIdleConns(5)
+    d.db.SetConnMaxLifetime(5 * time.Minute)
+
+    return nil
+}
+
+// String returns the service name
+func (d *DatabaseService) String() string {
+    return "database"
+}
+
+// State returns the current service state
+func (d *DatabaseService) State(ctx context.Context) (string, error) {
+    if d.db == nil {
+        return "not initialized", nil
+    }
+
+    if err := d.db.PingContext(ctx); err != nil {
+        return "disconnected", err
+    }
+
+    return "connected", nil
+}
+
+// Terminate closes the database connection
+func (d *DatabaseService) Terminate(ctx context.Context) error {
+    if d.db != nil {
+        return d.db.Close()
+    }
+    return nil
+}
+
+// Connection returns the database connection
+func (d *DatabaseService) Connection() *sql.DB {
+    return d.db
+}
+
+// CacheService manages a cache connection
+type CacheService struct {
+    // Cache client fields...
+}
+
+func (c *CacheService) Start(ctx context.Context) error {
+    // Initialize cache connection
+    fmt.Println("Cache service starting...")
+    return nil
+}
+
+func (c *CacheService) String() string {
+    return "cache"
+}
+
+func (c *CacheService) State(ctx context.Context) (string, error) {
+    return "running", nil
+}
+
+func (c *CacheService) Terminate(ctx context.Context) error {
+    // Close cache connection
+    fmt.Println("Cache service shutting down...")
+    return nil
+}
+
+func main() {
+    // Create services
+    dbService := NewDatabaseService("postgres://user:pass@localhost/mydb")
+    cacheService := &CacheService{}
+
+    // Configure app with services
+    app := fiber.New(fiber.Config{
+        Services: []fiber.Service{
+            dbService,
+            cacheService,
+        },
+        ServicesStartupContextProvider: func() context.Context {
+            ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+            return ctx
+        },
+        ServicesShutdownContextProvider: func() context.Context {
+            ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+            return ctx
+        },
+    })
+
+    // Use services in handlers
+    app.Get("/users", func(c fiber.Ctx) error {
+        // Get database service
+        db := fiber.MustGetService[*DatabaseService](app.State(), "database")
+        
+        // Query database
+        rows, err := db.Connection().Query("SELECT id, name FROM users")
+        if err != nil {
+            return err
+        }
+        defer rows.Close()
+
+        var users []map[string]interface{}
+        for rows.Next() {
+            var id int
+            var name string
+            if err := rows.Scan(&id, &name); err != nil {
+                return err
+            }
+            users = append(users, map[string]interface{}{
+                "id":   id,
+                "name": name,
+            })
+        }
+
+        return c.JSON(users)
+    })
+
+    app.Get("/health", func(c fiber.Ctx) error {
+        // Check service states
+        dbState, _ := dbService.State(c.Context())
+        cacheState, _ := cacheService.State(c.Context())
+
+        return c.JSON(fiber.Map{
+            "services": fiber.Map{
+                "database": dbState,
+                "cache":    cacheState,
+            },
+        })
+    })
+
+    // Services are automatically started before Listen() returns
+    // and shut down after Shutdown()
+    app.Listen(":3000")
+}
+```
+
+## Lifecycle Flow
+
+1. **App Creation**: Services are registered in the app configuration
+2. **App Start**: Services' `Start()` methods are called in order
+3. **Runtime**: Services are accessible via `GetService()` or `MustGetService()`
+4. **App Shutdown**: Services' `Terminate()` methods are called in reverse order
+
+## Error Handling
+
+### Startup Errors
+
+If a service fails to start:
+- The `Start()` error is returned
+- The application startup is aborted
+- Previously started services are **not** automatically terminated
+
+### Shutdown Errors
+
+If a service fails to terminate:
+- The error is collected but shutdown continues
+- All services are attempted to be terminated
+- All errors are joined and returned
+
+```go
+func (d *DatabaseService) Terminate(ctx context.Context) error {
+    if d.db == nil {
+        return nil // Already terminated or never started
+    }
+
+    // Check context cancellation
+    if err := ctx.Err(); err != nil {
+        return fmt.Errorf("shutdown context canceled: %w", err)
+    }
+
+    // Close with timeout
+    done := make(chan error, 1)
+    go func() {
+        done <- d.db.Close()
+    }()
+
+    select {
+    case err := <-done:
+        return err
+    case <-ctx.Done():
+        return ctx.Err()
+    }
+}
+```
+
+## Best Practices
+
+1. **Context Handling**: Always respect the context provided to `Start()` and `Terminate()`
+2. **Idempotency**: Make `Terminate()` safe to call multiple times
+3. **Nil Checks**: Check for nil resources before closing
+4. **Timeouts**: Use the provided context for timeout control
+5. **Logging**: Log service lifecycle events for debugging
+6. **Dependencies**: Start services in dependency order (e.g., database before cache)
+7. **State Accuracy**: Ensure `State()` accurately reflects the service status

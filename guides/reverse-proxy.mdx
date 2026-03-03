@@ -1,0 +1,475 @@
+---
+title: Reverse Proxy Usage
+description: Learn how to use Fiber's proxy middleware for load balancing, HTTP/2 support, and production deployments
+---
+
+## Overview
+
+Fiber's proxy middleware enables you to forward requests to upstream servers, implement load balancing, and integrate with reverse proxies like Nginx and Traefik.
+
+## Basic Proxy Usage
+
+### Simple Proxy
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/proxy"
+)
+
+app := fiber.New()
+
+app.Get("/api/*", proxy.Balancer(proxy.Config{
+    Servers: []string{
+        "http://backend-1:8080",
+        "http://backend-2:8080",
+        "http://backend-3:8080",
+    },
+}))
+
+app.Listen(":3000")
+```
+
+### Load Balancing
+
+The proxy middleware uses `fasthttp.LBClient` for automatic load balancing:
+
+```go
+import (
+    "time"
+    "github.com/gofiber/fiber/v3/middleware/proxy"
+)
+
+app.Use(proxy.Balancer(proxy.Config{
+    Servers: []string{
+        "http://server1.example.com",
+        "http://server2.example.com",
+        "http://server3.example.com",
+    },
+    Timeout: 10 * time.Second,
+}))
+```
+
+## Configuration Options
+
+### Timeouts and Buffers
+
+```go
+proxy.Balancer(proxy.Config{
+    Servers: []string{"http://backend:8080"},
+    
+    // Request/response timeouts
+    Timeout: 30 * time.Second,
+    
+    // Buffer sizes for performance
+    ReadBufferSize:  8192,
+    WriteBufferSize: 8192,
+})
+```
+
+### TLS Configuration
+
+```go
+import (
+    "crypto/tls"
+    "github.com/gofiber/fiber/v3/middleware/proxy"
+)
+
+proxy.Balancer(proxy.Config{
+    Servers: []string{"https://secure-backend:8443"},
+    
+    TLSConfig: &tls.Config{
+        InsecureSkipVerify: false,
+        MinVersion:         tls.VersionTLS12,
+    },
+})
+```
+
+### Dual Stack Support
+
+```go
+proxy.Balancer(proxy.Config{
+    Servers: []string{"http://backend:8080"},
+    
+    // Enable IPv4 and IPv6
+    DialDualStack: true,
+})
+```
+
+## Modify Requests and Responses
+
+### Request Modification
+
+```go
+proxy.Balancer(proxy.Config{
+    Servers: []string{"http://backend:8080"},
+    
+    ModifyRequest: func(c fiber.Ctx) error {
+        // Add custom headers
+        c.Request().Header.Set("X-Forwarded-Host", c.Hostname())
+        c.Request().Header.Set("X-Real-IP", c.IP())
+        
+        // Add authentication
+        c.Request().Header.Set("X-API-Key", "secret-key")
+        
+        return nil
+    },
+})
+```
+
+### Response Modification
+
+```go
+proxy.Balancer(proxy.Config{
+    Servers: []string{"http://backend:8080"},
+    
+    ModifyResponse: func(c fiber.Ctx) error {
+        // Add security headers
+        c.Response().Header.Set("X-Frame-Options", "DENY")
+        c.Response().Header.Set("X-Content-Type-Options", "nosniff")
+        
+        // Remove backend headers
+        c.Response().Header.Del("X-Powered-By")
+        
+        return nil
+    },
+})
+```
+
+## Advanced Patterns
+
+### Conditional Proxying
+
+```go
+proxy.Balancer(proxy.Config{
+    Servers: []string{"http://backend:8080"},
+    
+    Next: func(c fiber.Ctx) bool {
+        // Skip proxy for health checks
+        if c.Path() == "/health" {
+            return true
+        }
+        
+        // Skip proxy for static files
+        if strings.HasPrefix(c.Path(), "/static") {
+            return true
+        }
+        
+        return false
+    },
+})
+```
+
+### Custom Client
+
+For advanced use cases, provide your own `fasthttp.LBClient`:
+
+```go
+import "github.com/valyala/fasthttp"
+
+customClient := &fasthttp.LBClient{
+    Clients: []fasthttp.BalancingClient{
+        &fasthttp.HostClient{
+            Addr: "backend1:8080",
+            MaxConns: 1000,
+        },
+        &fasthttp.HostClient{
+            Addr: "backend2:8080",
+            MaxConns: 1000,
+        },
+    },
+    Timeout: 10 * time.Second,
+}
+
+proxy.Balancer(proxy.Config{
+    Client: customClient,
+})
+```
+
+### Connection Header Handling
+
+```go
+proxy.Balancer(proxy.Config{
+    Servers: []string{"http://backend:8080"},
+    
+    // Keep Connection header (default: false)
+    KeepConnectionHeader: true,
+})
+```
+
+## Production Deployment
+
+### Nginx as Reverse Proxy
+
+Run Fiber behind Nginx for HTTP/2, TLS termination, and caching:
+
+```nginx
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name example.com;
+
+    ssl_certificate     /etc/ssl/certs/example.crt;
+    ssl_certificate_key /etc/ssl/private/example.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        
+        # WebSocket support
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # Standard proxy headers
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+}
+```
+
+### Traefik Configuration
+
+```yaml
+# docker-compose.yml
+version: '3'
+
+services:
+  traefik:
+    image: traefik:v2.10
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+
+  fiber-app:
+    build: .
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app.rule=Host(`example.com`)"
+      - "traefik.http.routers.app.entrypoints=websecure"
+      - "traefik.http.routers.app.tls=true"
+      - "traefik.http.services.app.loadbalancer.server.port=3000"
+```
+
+### Caddy Configuration
+
+```caddyfile
+example.com {
+    reverse_proxy localhost:3000
+    
+    # Enable HTTP/2 and HTTP/3
+    protocols h1 h2 h3
+    
+    # Add security headers
+    header {
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    }
+}
+```
+
+## HTTP/2 Support
+
+Fiber uses HTTP/1.1 internally (via fasthttp). For HTTP/2 support, use a reverse proxy:
+
+### Why HTTP/2 Matters
+
+- **Server Push** - Send resources before requested
+- **Early Hints (103)** - Preload resources while processing
+- **Multiplexing** - Multiple requests over one connection
+- **Header Compression** - Reduced overhead
+
+### Nginx HTTP/2 Setup
+
+```nginx
+server {
+    listen 443 ssl;
+    http2 on;  # Enable HTTP/2
+    server_name example.com;
+
+    ssl_certificate     /etc/ssl/certs/example.crt;
+    ssl_certificate_key /etc/ssl/private/example.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+## HTTP/3 (QUIC) Support
+
+Enable HTTP/3 for improved performance:
+
+### Nginx QUIC
+
+```nginx
+server {
+    listen 443 ssl;
+    listen 443 quic reuseport;  # Enable QUIC
+    http2 on;
+    http3 on;  # Enable HTTP/3
+    
+    server_name example.com;
+    
+    # Add Alt-Svc header to advertise HTTP/3
+    add_header Alt-Svc 'h3=":443"; ma=86400';
+    
+    ssl_certificate     /etc/ssl/certs/example.crt;
+    ssl_certificate_key /etc/ssl/private/example.key;
+    
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+    }
+}
+```
+
+### Traefik HTTP/3
+
+```yaml
+entryPoints:
+  websecure:
+    address: ":443"
+    http3:
+      advertisedPort: 443
+
+http:
+  routers:
+    app:
+      rule: "Host(`example.com`)"
+      entryPoints:
+        - websecure
+      service: app
+      tls: {}
+
+  services:
+    app:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:3000"
+```
+
+## Security Best Practices
+
+### Validate Upstream Responses
+
+```go
+proxy.Balancer(proxy.Config{
+    Servers: []string{"http://backend:8080"},
+    
+    ModifyResponse: func(c fiber.Ctx) error {
+        // Validate response
+        if c.Response().StatusCode() >= 500 {
+            return fiber.ErrBadGateway
+        }
+        
+        // Sanitize headers
+        c.Response().Header.Del("X-Internal-Secret")
+        
+        return nil
+    },
+})
+```
+
+### Rate Limiting
+
+Combine with rate limiter middleware:
+
+```go
+import "github.com/gofiber/fiber/v3/middleware/limiter"
+
+app.Use(limiter.New(limiter.Config{
+    Max: 100,
+    Expiration: 1 * time.Minute,
+}))
+
+app.Use(proxy.Balancer(proxy.Config{
+    Servers: []string{"http://backend:8080"},
+}))
+```
+
+### Authentication
+
+```go
+proxy.Balancer(proxy.Config{
+    Servers: []string{"http://backend:8080"},
+    
+    ModifyRequest: func(c fiber.Ctx) error {
+        // Verify API key
+        apiKey := c.Get("X-API-Key")
+        if !isValidAPIKey(apiKey) {
+            return fiber.ErrUnauthorized
+        }
+        
+        // Add internal auth header
+        c.Request().Header.Set("X-Internal-Auth", "validated")
+        
+        return nil
+    },
+})
+```
+
+## Troubleshooting
+
+### Connection Refused
+
+```go
+proxy.Balancer(proxy.Config{
+    Servers: []string{"http://backend:8080"},
+    
+    ModifyRequest: func(c fiber.Ctx) error {
+        log.Printf("Proxying to backend: %s", c.OriginalURL())
+        return nil
+    },
+    
+    ModifyResponse: func(c fiber.Ctx) error {
+        if c.Response().StatusCode() == 0 {
+            log.Println("Backend unreachable")
+            return fiber.ErrBadGateway
+        }
+        return nil
+    },
+})
+```
+
+### Timeout Issues
+
+```go
+proxy.Balancer(proxy.Config{
+    Servers: []string{"http://slow-backend:8080"},
+    
+    // Increase timeout for slow backends
+    Timeout: 60 * time.Second,
+    
+    ModifyResponse: func(c fiber.Ctx) error {
+        duration := time.Since(c.Context().Time())
+        log.Printf("Request took: %v", duration)
+        return nil
+    },
+})
+```
+
+## See Also
+
+- [Proxy Middleware Documentation](/api/middleware/proxy)
+- [Nginx Documentation](https://nginx.org/en/docs/)
+- [Traefik Documentation](https://doc.traefik.io/traefik/)
+- [Caddy Documentation](https://caddyserver.com/docs/)

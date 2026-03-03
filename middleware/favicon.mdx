@@ -1,0 +1,196 @@
+---
+title: Favicon
+description: Serve and cache favicon requests efficiently
+---
+
+Favicon middleware for Fiber that caches and serves favicon requests, reducing disk I/O and preventing noisy logs. Mount it before your logger middleware to suppress repeated `/favicon.ico` requests.
+
+## Installation
+
+```bash
+go get -u github.com/gofiber/fiber/v3
+go get -u github.com/gofiber/fiber/v3/middleware/favicon
+```
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Usage
+
+### Basic Usage
+
+```go
+package main
+
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/favicon"
+)
+
+func main() {
+    app := fiber.New()
+
+    // Serve favicon from file
+    app.Use(favicon.New())
+
+    app.Listen(":3000")
+}
+```
+
+### Custom Configuration
+
+```go
+// Serve favicon from a custom file
+app.Use(favicon.New(favicon.Config{
+    File: "./assets/favicon.ico",
+    URL:  "/favicon.ico",
+}))
+
+// Serve favicon from raw data
+data, _ := os.ReadFile("./favicon.ico")
+app.Use(favicon.New(favicon.Config{
+    Data: data,
+}))
+
+// Customize cache control
+app.Use(favicon.New(favicon.Config{
+    File:         "./favicon.ico",
+    CacheControl: "public, max-age=86400", // 1 day
+}))
+```
+
+### Using Embedded Filesystem
+
+```go
+import (
+    "embed"
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/favicon"
+)
+
+//go:embed assets/*
+var assets embed.FS
+
+func main() {
+    app := fiber.New()
+
+    app.Use(favicon.New(favicon.Config{
+        File:       "assets/favicon.ico",
+        FileSystem: assets,
+    }))
+
+    app.Listen(":3000")
+}
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+  Function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="Data" type="[]byte" default="nil">
+  Raw data of the favicon file. Use this instead of `File` to serve favicon from memory.
+</ParamField>
+
+<ParamField path="File" type="string">
+  Path to the favicon file that will be cached. Can be a local file path or embedded filesystem path. Default: empty string.
+</ParamField>
+
+<ParamField path="URL" type="string">
+  URL path where the favicon handler will be mounted. Default: `/favicon.ico`.
+</ParamField>
+
+<ParamField path="FileSystem" type="fs.FS" default="nil">
+  Optional alternate filesystem to load the favicon from (e.g., `os.DirFS` or `embed.FS`).
+</ParamField>
+
+<ParamField path="CacheControl" type="string">
+  Value for the Cache-Control header in the response. Default: `public, max-age=31536000` (1 year).
+</ParamField>
+
+<ParamField path="MaxBytes" type="int64" default="1048576">
+  Maximum size limit for the cached favicon asset in bytes (default is 1MB).
+</ParamField>
+
+## Default Configuration
+
+```go
+var ConfigDefault = Config{
+    Next:         nil,
+    File:         "",
+    URL:          "/favicon.ico",
+    CacheControl: "public, max-age=31536000",
+    MaxBytes:     1024 * 1024,
+}
+```
+
+## Best Practices
+
+- Mount the favicon middleware **before** the logger middleware to avoid noisy logs
+- Use the `Data` field for small favicons to avoid disk I/O entirely
+- Set appropriate `CacheControl` headers to reduce server load
+- For multiple icon sizes, use the Static middleware instead
+- The middleware only handles GET, HEAD, and OPTIONS methods
+
+## Common Patterns
+
+### Suppress Favicon Logs
+
+```go
+// Mount favicon BEFORE logger
+app.Use(favicon.New())
+app.Use(logger.New())
+```
+
+### Serve Multiple Icon Formats
+
+The favicon middleware only serves a single icon. For multiple formats (png, svg, etc.), use the Static middleware:
+
+```go
+// For multiple icon formats, use Static middleware
+app.Use("/", static.New("./public"))
+// This will serve:
+// /favicon.ico
+// /favicon.png
+// /apple-touch-icon.png
+// etc.
+```
+
+### Development vs Production
+
+```go
+config := favicon.Config{
+    File: "./favicon.ico",
+}
+
+if os.Getenv("ENV") == "production" {
+    // Longer cache in production
+    config.CacheControl = "public, max-age=31536000, immutable"
+} else {
+    // Shorter cache in development
+    config.CacheControl = "public, max-age=60"
+}
+
+app.Use(favicon.New(config))
+```
+
+### Custom URL Path
+
+```go
+// Serve favicon at a custom path
+app.Use(favicon.New(favicon.Config{
+    File: "./icon.ico",
+    URL:  "/custom-icon.ico",
+}))
+```
+
+## Notes
+
+- The middleware only handles requests to the configured URL path (default: `/favicon.ico`)
+- Requests with unsupported methods return `405 Method Not Allowed`
+- The favicon is loaded once on startup and cached in memory
+- If the file size exceeds `MaxBytes`, the middleware will return an error

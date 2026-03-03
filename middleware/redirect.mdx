@@ -1,0 +1,207 @@
+---
+title: Redirect
+description: URL redirection middleware for Fiber
+---
+
+Redirect middleware for Fiber provides powerful URL redirection with pattern matching and variable capture. It allows you to define URL rewrite rules that redirect requests to new paths.
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Usage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/redirect"
+)
+```
+
+### Basic Usage
+
+```go
+app.Use(redirect.New(redirect.Config{
+    Rules: map[string]string{
+        "/old": "/new",
+    },
+}))
+```
+
+### Pattern Matching with Wildcards
+
+```go
+app.Use(redirect.New(redirect.Config{
+    Rules: map[string]string{
+        "/old":              "/new",
+        "/api/*":            "/$1",
+        "/js/*":             "/public/javascript/$1",
+        "/users/*/orders/*": "/user/$1/order/$2",
+    },
+}))
+```
+
+### Custom Status Code
+
+```go
+app.Use(redirect.New(redirect.Config{
+    Rules: map[string]string{
+        "/old": "/new",
+    },
+    StatusCode: 301, // Permanent redirect
+}))
+```
+
+### Skip Specific Paths
+
+```go
+app.Use(redirect.New(redirect.Config{
+    Next: func(c fiber.Ctx) bool {
+        // Skip API routes
+        return strings.HasPrefix(c.Path(), "/api")
+    },
+    Rules: map[string]string{
+        "/old": "/new",
+    },
+}))
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+Defines a function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="Rules" type="map[string]string" required>
+Defines the URL path redirect rules. The values captured in asterisk wildcards can be retrieved by index e.g. `$1`, `$2` and so on.
+
+Example rules:
+- `"/old": "/new"` - Simple redirect
+- `"/api/*": "/$1"` - Capture and reuse path
+- `"/js/*": "/public/javascript/$1"` - Add prefix
+- `"/users/*/orders/*": "/user/$1/order/$2"` - Multiple captures
+</ParamField>
+
+<ParamField path="StatusCode" type="int" default="302">
+The HTTP status code to use when redirecting. Common values:
+- `301` - Permanent redirect
+- `302` - Temporary redirect (default)
+- `307` - Temporary redirect (preserves request method)
+- `308` - Permanent redirect (preserves request method)
+</ParamField>
+
+## Default Config
+
+```go
+var ConfigDefault = Config{
+    StatusCode: fiber.StatusFound, // 302
+}
+```
+
+## Common Use Cases
+
+### Legacy URL Migration
+
+```go
+app.Use(redirect.New(redirect.Config{
+    Rules: map[string]string{
+        "/old-blog/*":     "/blog/$1",
+        "/old-products/*": "/products/$1",
+    },
+    StatusCode: 301, // Permanent redirect for SEO
+}))
+```
+
+### API Versioning
+
+```go
+app.Use(redirect.New(redirect.Config{
+    Rules: map[string]string{
+        "/api/v1/*": "/api/v2/$1",
+    },
+    StatusCode: 301,
+}))
+```
+
+### URL Normalization
+
+```go
+app.Use(redirect.New(redirect.Config{
+    Rules: map[string]string{
+        "/home":  "/",
+        "/index": "/",
+    },
+}))
+```
+
+### Language Path Redirects
+
+```go
+app.Use(redirect.New(redirect.Config{
+    Rules: map[string]string{
+        "/en/*": "/us/$1",
+        "/uk/*": "/gb/$1",
+    },
+}))
+```
+
+### Marketing Campaign URLs
+
+```go
+app.Use(redirect.New(redirect.Config{
+    Rules: map[string]string{
+        "/promo": "/products?campaign=promo2024",
+        "/sale":  "/products?sale=true",
+    },
+    StatusCode: 302, // Temporary for campaigns
+}))
+```
+
+## Best Practices
+
+### Use Permanent Redirects for SEO
+
+```go
+// For permanent URL changes
+app.Use(redirect.New(redirect.Config{
+    Rules: map[string]string{
+        "/old-page": "/new-page",
+    },
+    StatusCode: 301, // Tells search engines the move is permanent
+}))
+```
+
+### Order Matters
+
+```go
+// More specific rules should come before general ones
+app.Use(redirect.New(redirect.Config{
+    Rules: map[string]string{
+        "/api/v1/users/admin": "/admin/users",    // Specific
+        "/api/v1/*":           "/api/v2/$1",      // General
+    },
+}))
+```
+
+### Combine with Conditional Logic
+
+```go
+app.Use(redirect.New(redirect.Config{
+    Next: func(c fiber.Ctx) bool {
+        // Only redirect in production
+        return os.Getenv("ENV") != "production"
+    },
+    Rules: map[string]string{
+        "/old": "/new",
+    },
+}))
+```
+
+## Notes
+
+- Wildcards (`*`) in rules capture path segments that can be referenced as `$1`, `$2`, etc.
+- Rules are processed as written in the map
+- The middleware uses regular expressions internally for pattern matching
+- Redirect preserves query parameters from the original request

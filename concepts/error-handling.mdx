@@ -1,0 +1,528 @@
+---
+title: Error Handling
+description: Learn how to handle errors in Fiber with custom error handlers, error types, and best practices.
+---
+
+Fiber provides a centralized error handling mechanism that catches errors from route handlers and middleware, allowing you to customize how errors are processed and returned to clients.
+
+## How Error Handling Works
+
+When a handler or middleware returns an error, Fiber's error handler is invoked:
+
+```go
+app.Get("/user/:id", func(c fiber.Ctx) error {
+    id := c.Params("id")
+    
+    user, err := db.GetUser(id)
+    if err != nil {
+        // Return error - ErrorHandler will handle it
+        return err
+    }
+    
+    return c.JSON(user)
+})
+```
+
+## Default Error Handler
+
+Fiber's default error handler returns a simple text response:
+
+```go
+func DefaultErrorHandler(c Ctx, err error) error {
+    code := fiber.StatusInternalServerError
+    
+    // Check if it's a Fiber error
+    var e *fiber.Error
+    if errors.As(err, &e) {
+        code = e.Code
+    }
+    
+    c.Set(fiber.HeaderContentType, fiber.MIMETextPlainCharsetUTF8)
+    return c.Status(code).SendString(err.Error())
+}
+```
+
+## Custom Error Handler
+
+Define a custom error handler to control error responses:
+
+```go
+app := fiber.New(fiber.Config{
+    ErrorHandler: func(c fiber.Ctx, err error) error {
+        // Default to 500
+        code := fiber.StatusInternalServerError
+        
+        // Check for Fiber errors
+        var e *fiber.Error
+        if errors.As(err, &e) {
+            code = e.Code
+        }
+        
+        // Return JSON error response
+        return c.Status(code).JSON(fiber.Map{
+            "error": err.Error(),
+            "code":  code,
+        })
+    },
+})
+```
+
+### Detailed Error Handler
+
+```go
+type ErrorResponse struct {
+    Error   string `json:"error"`
+    Code    int    `json:"code"`
+    Message string `json:"message,omitempty"`
+}
+
+app := fiber.New(fiber.Config{
+    ErrorHandler: func(c fiber.Ctx, err error) error {
+        code := fiber.StatusInternalServerError
+        message := "Internal Server Error"
+        
+        // Check for Fiber errors
+        var fiberErr *fiber.Error
+        if errors.As(err, &fiberErr) {
+            code = fiberErr.Code
+            message = fiberErr.Message
+        }
+        
+        // Log the error
+        log.Printf("Error: %v", err)
+        
+        // Send error response
+        return c.Status(code).JSON(ErrorResponse{
+            Error:   err.Error(),
+            Code:    code,
+            Message: message,
+        })
+    },
+})
+```
+
+## Fiber Error Type
+
+Fiber provides a custom error type with HTTP status codes:
+
+```go
+// Create Fiber error
+err := fiber.NewError(fiber.StatusBadRequest, "Invalid input")
+
+// With formatted message
+err := fiber.NewErrorf(fiber.StatusNotFound, "User with ID %s not found", id)
+
+// Return from handler
+app.Get("/user/:id", func(c fiber.Ctx) error {
+    id := c.Params("id")
+    
+    if id == "" {
+        return fiber.NewError(fiber.StatusBadRequest, "User ID is required")
+    }
+    
+    user, err := db.GetUser(id)
+    if err != nil {
+        return fiber.NewError(fiber.StatusNotFound, "User not found")
+    }
+    
+    return c.JSON(user)
+})
+```
+
+## Common HTTP Status Codes
+
+Fiber provides constants for standard HTTP status codes:
+
+```go
+fiber.StatusOK                  // 200
+fiber.StatusCreated             // 201
+fiber.StatusNoContent           // 204
+
+fiber.StatusBadRequest          // 400
+fiber.StatusUnauthorized        // 401
+fiber.StatusForbidden           // 403
+fiber.StatusNotFound            // 404
+fiber.StatusConflict            // 409
+
+fiber.StatusInternalServerError // 500
+fiber.StatusServiceUnavailable  // 503
+```
+
+### Using Status Codes
+
+```go
+app.Post("/user", func(c fiber.Ctx) error {
+    var user User
+    
+    if err := c.Bind().JSON(&user); err != nil {
+        return fiber.NewError(fiber.StatusBadRequest, "Invalid JSON")
+    }
+    
+    if user.Email == "" {
+        return fiber.NewError(fiber.StatusBadRequest, "Email is required")
+    }
+    
+    if exists := db.UserExists(user.Email); exists {
+        return fiber.NewError(fiber.StatusConflict, "User already exists")
+    }
+    
+    if err := db.CreateUser(user); err != nil {
+        return fiber.NewError(fiber.StatusInternalServerError, "Failed to create user")
+    }
+    
+    return c.Status(fiber.StatusCreated).JSON(user)
+})
+```
+
+## Error Handling Patterns
+
+### Validation Errors
+
+```go
+type ValidationError struct {
+    Field   string `json:"field"`
+    Message string `json:"message"`
+}
+
+func validateUser(user *User) []ValidationError {
+    var errors []ValidationError
+    
+    if user.Name == "" {
+        errors = append(errors, ValidationError{
+            Field:   "name",
+            Message: "Name is required",
+        })
+    }
+    
+    if user.Email == "" {
+        errors = append(errors, ValidationError{
+            Field:   "email",
+            Message: "Email is required",
+        })
+    }
+    
+    return errors
+}
+
+app.Post("/user", func(c fiber.Ctx) error {
+    var user User
+    
+    if err := c.Bind().JSON(&user); err != nil {
+        return fiber.NewError(fiber.StatusBadRequest, "Invalid JSON")
+    }
+    
+    if errs := validateUser(&user); len(errs) > 0 {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "errors": errs,
+        })
+    }
+    
+    return c.Status(fiber.StatusCreated).JSON(user)
+})
+```
+
+### Custom Error Types
+
+```go
+type DatabaseError struct {
+    Op  string
+    Err error
+}
+
+func (e *DatabaseError) Error() string {
+    return fmt.Sprintf("database error during %s: %v", e.Op, e.Err)
+}
+
+app := fiber.New(fiber.Config{
+    ErrorHandler: func(c fiber.Ctx, err error) error {
+        code := fiber.StatusInternalServerError
+        
+        // Check for custom error types
+        var dbErr *DatabaseError
+        if errors.As(err, &dbErr) {
+            log.Printf("Database error: %v", dbErr)
+            return c.Status(code).JSON(fiber.Map{
+                "error": "A database error occurred",
+            })
+        }
+        
+        // Check for Fiber errors
+        var fiberErr *fiber.Error
+        if errors.As(err, &fiberErr) {
+            code = fiberErr.Code
+        }
+        
+        return c.Status(code).JSON(fiber.Map{
+            "error": err.Error(),
+        })
+    },
+})
+```
+
+### Wrapping Errors
+
+```go
+import "fmt"
+
+app.Get("/user/:id", func(c fiber.Ctx) error {
+    id := c.Params("id")
+    
+    user, err := db.GetUser(id)
+    if err != nil {
+        // Wrap error with context
+        return fmt.Errorf("failed to get user %s: %w", id, err)
+    }
+    
+    return c.JSON(user)
+})
+```
+
+## Panic Recovery
+
+Use the Recover middleware to catch panics:
+
+```go
+import "github.com/gofiber/fiber/v3/middleware/recover"
+
+app.Use(recover.New())
+
+app.Get("/panic", func(c fiber.Ctx) error {
+    panic("Something went wrong!")
+})
+```
+
+### Custom Panic Handler
+
+```go
+import "github.com/gofiber/fiber/v3/middleware/recover"
+
+app.Use(recover.New(recover.Config{
+    EnableStackTrace: true,
+    StackTraceHandler: func(c fiber.Ctx, e any) {
+        log.Printf("Panic: %v", e)
+    },
+}))
+```
+
+## Error Handling in Middleware
+
+Middleware can return errors that will be handled by the error handler:
+
+```go
+func AuthMiddleware(c fiber.Ctx) error {
+    token := c.Get("Authorization")
+    
+    if token == "" {
+        return fiber.NewError(fiber.StatusUnauthorized, "Missing authorization token")
+    }
+    
+    user, err := validateToken(token)
+    if err != nil {
+        return fiber.NewError(fiber.StatusUnauthorized, "Invalid token")
+    }
+    
+    c.Locals("user", user)
+    return c.Next()
+}
+
+app.Use(AuthMiddleware)
+```
+
+## Logging Errors
+
+Log errors for debugging and monitoring:
+
+```go
+app := fiber.New(fiber.Config{
+    ErrorHandler: func(c fiber.Ctx, err error) error {
+        code := fiber.StatusInternalServerError
+        
+        var e *fiber.Error
+        if errors.As(err, &e) {
+            code = e.Code
+        }
+        
+        // Log error details
+        log.Printf(
+            "[ERROR] %s %s - %v (status: %d)",
+            c.Method(),
+            c.Path(),
+            err,
+            code,
+        )
+        
+        return c.Status(code).JSON(fiber.Map{
+            "error": err.Error(),
+        })
+    },
+})
+```
+
+## Production Error Handling
+
+Hide internal error details in production:
+
+```go
+app := fiber.New(fiber.Config{
+    ErrorHandler: func(c fiber.Ctx, err error) error {
+        code := fiber.StatusInternalServerError
+        message := "Internal Server Error"
+        
+        var fiberErr *fiber.Error
+        if errors.As(err, &fiberErr) {
+            code = fiberErr.Code
+            message = fiberErr.Message
+        }
+        
+        // Log detailed error (for internal use)
+        log.Printf("Error: %v", err)
+        
+        // Return generic message in production
+        if os.Getenv("ENV") == "production" {
+            if code == fiber.StatusInternalServerError {
+                message = "An error occurred"
+            }
+        }
+        
+        return c.Status(code).JSON(fiber.Map{
+            "error": message,
+        })
+    },
+})
+```
+
+## Error Response Formats
+
+### JSON API Format
+
+```go
+type JSONAPIError struct {
+    Errors []JSONAPIErrorDetail `json:"errors"`
+}
+
+type JSONAPIErrorDetail struct {
+    Status string `json:"status"`
+    Title  string `json:"title"`
+    Detail string `json:"detail,omitempty"`
+}
+
+app := fiber.New(fiber.Config{
+    ErrorHandler: func(c fiber.Ctx, err error) error {
+        code := fiber.StatusInternalServerError
+        title := "Internal Server Error"
+        
+        var fiberErr *fiber.Error
+        if errors.As(err, &fiberErr) {
+            code = fiberErr.Code
+            title = fiberErr.Message
+        }
+        
+        return c.Status(code).JSON(JSONAPIError{
+            Errors: []JSONAPIErrorDetail{
+                {
+                    Status: strconv.Itoa(code),
+                    Title:  title,
+                    Detail: err.Error(),
+                },
+            },
+        })
+    },
+})
+```
+
+### Problem Details (RFC 7807)
+
+```go
+type ProblemDetail struct {
+    Type     string `json:"type"`
+    Title    string `json:"title"`
+    Status   int    `json:"status"`
+    Detail   string `json:"detail,omitempty"`
+    Instance string `json:"instance,omitempty"`
+}
+
+app := fiber.New(fiber.Config{
+    ErrorHandler: func(c fiber.Ctx, err error) error {
+        code := fiber.StatusInternalServerError
+        title := "Internal Server Error"
+        
+        var fiberErr *fiber.Error
+        if errors.As(err, &fiberErr) {
+            code = fiberErr.Code
+            title = fiberErr.Message
+        }
+        
+        return c.Status(code).JSON(ProblemDetail{
+            Type:     "about:blank",
+            Title:    title,
+            Status:   code,
+            Detail:   err.Error(),
+            Instance: c.Path(),
+        })
+    },
+})
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use appropriate status codes">
+    Choose HTTP status codes that accurately represent the error type.
+    
+    ```go
+    // 400 for client errors
+    fiber.NewError(fiber.StatusBadRequest, "Invalid input")
+    
+    // 404 for not found
+    fiber.NewError(fiber.StatusNotFound, "Resource not found")
+    
+    // 500 for server errors
+    fiber.NewError(fiber.StatusInternalServerError, "Server error")
+    ```
+  </Accordion>
+
+  <Accordion title="Log errors for debugging">
+    Always log errors with context for troubleshooting.
+    
+    ```go
+    log.Printf("Error processing request %s: %v", c.Path(), err)
+    ```
+  </Accordion>
+
+  <Accordion title="Don't expose internal details">
+    Hide sensitive error information from API responses in production.
+    
+    ```go
+    // Development: detailed errors
+    // Production: generic messages
+    ```
+  </Accordion>
+
+  <Accordion title="Use custom error types">
+    Create custom error types for better error handling and classification.
+    
+    ```go
+    type NotFoundError struct {
+        Resource string
+        ID       string
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Middleware" icon="filter" href="/concepts/middleware">
+    Handle errors in middleware
+  </Card>
+  <Card title="Context" icon="code" href="/concepts/context">
+    Return errors from handlers
+  </Card>
+  <Card title="Recover Middleware" icon="life-ring" href="/middleware/recover">
+    Recover from panics
+  </Card>
+  <Card title="Logger Middleware" icon="file-lines" href="/middleware/logger">
+    Log requests and errors
+  </Card>
+</CardGroup>

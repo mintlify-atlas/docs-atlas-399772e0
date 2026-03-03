@@ -1,0 +1,169 @@
+---
+title: Recover
+description: Panic recovery middleware for Fiber
+---
+
+Recover middleware for Fiber recovers from panics anywhere in the request chain and handles them gracefully. When a panic occurs, it catches the error, optionally logs the stack trace, and returns a customizable error response.
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Usage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/recover"
+)
+```
+
+### Basic Usage
+
+```go
+// Default config
+app.Use(recover.New())
+
+// Custom configuration
+app.Use(recover.New(recover.Config{
+    EnableStackTrace: true,
+}))
+```
+
+### Custom Panic Handler
+
+```go
+app.Use(recover.New(recover.Config{
+    PanicHandler: func(c fiber.Ctx, r any) error {
+        // Log the panic
+        log.Printf("Panic occurred: %v", r)
+        // Return custom error
+        return c.Status(500).SendString("Internal Server Error")
+    },
+}))
+```
+
+### Enable Stack Trace Logging
+
+```go
+app.Use(recover.New(recover.Config{
+    EnableStackTrace: true,
+    StackTraceHandler: func(c fiber.Ctx, e any) {
+        log.Printf("Stack trace for panic: %v\n%s", e, debug.Stack())
+    },
+}))
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+Defines a function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="PanicHandler" type="func(fiber.Ctx, any) error" default="DefaultPanicHandler">
+Defines a function to customize the error produced from a recovered panic. The default handler returns a 500 Internal Server Error.
+</ParamField>
+
+<ParamField path="StackTraceHandler" type="func(fiber.Ctx, any)" default="defaultStackTraceHandler">
+Defines a function to handle stack trace logging when a panic occurs.
+</ParamField>
+
+<ParamField path="EnableStackTrace" type="bool" default="false">
+Enables stack trace handling when a panic is recovered.
+</ParamField>
+
+## Default Config
+
+```go
+var ConfigDefault = Config{
+    Next:              nil,
+    EnableStackTrace:  false,
+    StackTraceHandler: defaultStackTraceHandler,
+    PanicHandler:      DefaultPanicHandler,
+}
+```
+
+## Common Use Cases
+
+### Production Error Handling
+
+```go
+app.Use(recover.New(recover.Config{
+    PanicHandler: func(c fiber.Ctx, r any) error {
+        // Log to monitoring service
+        monitoring.LogError(r)
+        // Return generic error
+        return c.Status(500).JSON(fiber.Map{
+            "error": "Internal Server Error",
+        })
+    },
+}))
+```
+
+### Development with Stack Traces
+
+```go
+if os.Getenv("ENV") == "development" {
+    app.Use(recover.New(recover.Config{
+        EnableStackTrace: true,
+        PanicHandler: func(c fiber.Ctx, r any) error {
+            return c.Status(500).JSON(fiber.Map{
+                "error": fmt.Sprintf("%v", r),
+                "stack": string(debug.Stack()),
+            })
+        },
+    }))
+} else {
+    app.Use(recover.New())
+}
+```
+
+### Custom Error Response Format
+
+```go
+app.Use(recover.New(recover.Config{
+    PanicHandler: func(c fiber.Ctx, r any) error {
+        return c.Status(500).JSON(fiber.Map{
+            "success": false,
+            "message": "An unexpected error occurred",
+            "error":   fmt.Sprintf("%v", r),
+        })
+    },
+}))
+```
+
+## Best Practices
+
+### Register Early
+
+```go
+// Register recover middleware FIRST to catch all panics
+app.Use(recover.New())
+
+// Then register other middleware
+app.Use(logger.New())
+
+// Finally register routes
+app.Get("/", handler)
+```
+
+### Combine with Error Handling
+
+```go
+app.Use(recover.New(recover.Config{
+    PanicHandler: func(c fiber.Ctx, r any) error {
+        // Convert panic to error
+        err := fmt.Errorf("panic: %v", r)
+        // Use app's error handler
+        return err
+    },
+}))
+```
+
+## Notes
+
+- This middleware should be registered early in the middleware chain to catch panics from subsequent middleware and handlers
+- Stack traces are only collected when `EnableStackTrace` is enabled to avoid performance overhead
+- The default panic handler returns a simple 500 status with "Internal Server Error" message

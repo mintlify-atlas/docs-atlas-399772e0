@@ -1,0 +1,203 @@
+---
+title: Encrypt Cookie
+description: Cookie encryption middleware for Fiber
+---
+
+The Encrypt Cookie middleware for Fiber encrypts cookie values for secure storage.
+
+<Note>
+This middleware encrypts cookie values but not cookie names.
+</Note>
+
+## Signatures
+
+```go
+// Initializes the middleware
+func New(config ...Config) fiber.Handler
+
+// GenerateKey returns a random string of 16, 24, or 32 bytes.
+func GenerateKey(length int) string
+```
+
+The length of the key determines the AES encryption algorithm used:
+- 16 bytes for AES-128
+- 24 bytes for AES-192
+- 32 bytes for AES-256-GCM
+
+## Usage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/encryptcookie"
+)
+```
+
+### Basic Example
+
+```go
+// Provide a minimal configuration
+app.Use(encryptcookie.New(encryptcookie.Config{
+    Key: "secret-32-character-string",
+}))
+
+// Retrieve the encrypted cookie value
+app.Get("/", func(c fiber.Ctx) error {
+    return c.SendString("value=" + c.Cookies("test"))
+})
+
+// Create an encrypted cookie
+app.Post("/", func(c fiber.Ctx) error {
+    c.Cookie(&fiber.Cookie{
+        Name:  "test",
+        Value: "SomeThing",
+    })
+    return nil
+})
+```
+
+<Note>
+Use an encoded key of 16, 24, or 32 bytes to select AES‑128, AES‑192, or AES‑256‑GCM. Generate a stable key with `openssl rand -base64 32` or `encryptcookie.GenerateKey(32)` and store it securely. Generating a new key on each startup renders existing cookies unreadable.
+</Note>
+
+### Generate Encryption Key
+
+```go
+key := encryptcookie.GenerateKey(32) // AES-256
+app.Use(encryptcookie.New(encryptcookie.Config{
+    Key: key,
+}))
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+A function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="Except" type="[]string" default="[]">
+Array of cookie keys that should not be encrypted.
+</ParamField>
+
+<ParamField path="Key" type="string" required>
+A base64-encoded unique key to encode & decode cookies. Required. Key length should be 16, 24, or 32 bytes corresponding to AES-128, AES-192, or AES-256.
+</ParamField>
+
+<ParamField path="Encryptor" type="func(name, decryptedString, key string) (string, error)" default="EncryptCookie">
+A custom function to encrypt cookies.
+</ParamField>
+
+<ParamField path="Decryptor" type="func(name, encryptedString, key string) (string, error)" default="DecryptCookie">
+A custom function to decrypt cookies.
+</ParamField>
+
+### Encryptor and Decryptor Parameters
+
+Custom encryptor and decryptor functions receive three arguments:
+
+- `name`: The cookie name. The default helpers bind this value as additional authenticated data (AAD) so encrypted values can only be decrypted for the same cookie.
+- `string`: The cookie payload. `EncryptCookie` accepts the decrypted value and returns ciphertext, while `DecryptCookie` receives ciphertext and must return the decrypted value.
+- `key`: The base64-encoded key pulled from the middleware configuration.
+
+## Default Config
+
+```go
+var ConfigDefault = Config{
+    Next:      nil,
+    Except:    []string{},
+    Key:       "",
+    Encryptor: EncryptCookie,
+    Decryptor: DecryptCookie,
+}
+```
+
+## Use with Other Middleware
+
+Place `encryptcookie` before middleware that reads or writes cookies. If you use the CSRF middleware, register `encryptcookie` first so it can read the token.
+
+### Exclude CSRF Cookie from Encryption
+
+```go
+app.Use(encryptcookie.New(encryptcookie.Config{
+    Key:    "secret-thirty-2-character-string",
+    Except: []string{csrf.ConfigDefault.CookieName}, // exclude CSRF cookie
+}))
+app.Use(csrf.New(csrf.Config{
+    Extractor:      csrf.FromHeader(csrf.HeaderName),
+    CookieSameSite: "Lax",
+    CookieSecure:   true,
+    CookieHTTPOnly: false,
+}))
+```
+
+## Encryption Algorithms
+
+The default Encryptor and Decryptor functions use `AES-256-GCM` for encryption and decryption. Select different algorithms by changing the key length:
+
+- **AES-128**: 16-byte key
+- **AES-192**: 24-byte key
+- **AES-256**: 32-byte key
+
+```go
+// AES-128
+key := encryptcookie.GenerateKey(16)
+
+// AES-192
+key := encryptcookie.GenerateKey(24)
+
+// AES-256 (recommended)
+key := encryptcookie.GenerateKey(32)
+```
+
+## Common Use Cases
+
+### Session Cookie Encryption
+
+```go
+app.Use(encryptcookie.New(encryptcookie.Config{
+    Key: os.Getenv("COOKIE_ENCRYPTION_KEY"),
+}))
+
+app.Use(session.New())
+```
+
+### Exclude Specific Cookies
+
+```go
+app.Use(encryptcookie.New(encryptcookie.Config{
+    Key: "secret-thirty-2-character-string",
+    Except: []string{"public_cookie", "analytics"},
+}))
+```
+
+### Custom Encryption Logic
+
+```go
+app.Use(encryptcookie.New(encryptcookie.Config{
+    Key: "secret-thirty-2-character-string",
+    Encryptor: func(name, decryptedString, key string) (string, error) {
+        // Custom encryption logic
+        return customEncrypt(decryptedString, key)
+    },
+    Decryptor: func(name, encryptedString, key string) (string, error) {
+        // Custom decryption logic
+        return customDecrypt(encryptedString, key)
+    },
+}))
+```
+
+### Environment-Based Keys
+
+```go
+func getEncryptionKey() string {
+    key := os.Getenv("COOKIE_KEY")
+    if key == "" {
+        log.Fatal("COOKIE_KEY environment variable not set")
+    }
+    return key
+}
+
+app.Use(encryptcookie.New(encryptcookie.Config{
+    Key: getEncryptionKey(),
+}))
+```

@@ -1,0 +1,191 @@
+---
+title: ETag
+description: ETag middleware for HTTP caching in Fiber
+---
+
+ETag middleware for Fiber that helps caches validate responses and saves bandwidth by avoiding full retransmits when content is unchanged.
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Usage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/etag"
+)
+```
+
+### Basic Example
+
+```go
+// Initialize default config
+app.Use(etag.New())
+
+// GET / -> ETag: "13-1831710635"
+app.Get("/", func(c fiber.Ctx) error {
+    return c.SendString("Hello, World!")
+})
+```
+
+### Weak ETags
+
+```go
+// Or extend your config for customization
+app.Use(etag.New(etag.Config{
+    Weak: true,
+}))
+
+// GET / -> ETag: W/"13-1831710635"
+app.Get("/", func(c fiber.Ctx) error {
+    return c.SendString("Hello, World!")
+})
+```
+
+<Note>
+Entity tags in requests must be quoted per RFC 9110. For example:
+```
+If-None-Match: "example-etag"
+```
+</Note>
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+Defines a function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="Weak" type="bool" default="false">
+Enables weak validators. Weak ETags are easier to generate but less reliable for comparisons. Weak ETags are prefixed with `W/`.
+</ParamField>
+
+## Default Config
+
+```go
+var ConfigDefault = Config{
+    Next: nil,
+    Weak: false,
+}
+```
+
+## How It Works
+
+The ETag middleware generates a unique hash based on the response body:
+
+1. **Strong ETags** (default): Used for byte-for-byte identical content
+2. **Weak ETags**: Indicated by `W/` prefix, used when content is semantically equivalent but not byte-identical
+
+When a client sends an `If-None-Match` header with a matching ETag, the server returns `304 Not Modified` instead of the full response body, saving bandwidth.
+
+## Common Use Cases
+
+### API Response Caching
+
+```go
+app.Use(etag.New())
+
+app.Get("/api/users", func(c fiber.Ctx) error {
+    users := getUsersFromDB()
+    return c.JSON(users)
+})
+```
+
+### Static Content with Strong ETags
+
+```go
+app.Use("/static", etag.New(etag.Config{
+    Weak: false, // Strong ETags for exact matching
+}))
+
+app.Static("/static", "./public")
+```
+
+### Dynamic Content with Weak ETags
+
+```go
+app.Use("/pages", etag.New(etag.Config{
+    Weak: true, // Content may vary slightly
+}))
+
+app.Get("/pages/:id", func(c fiber.Ctx) error {
+    page := getPageContent(c.Params("id"))
+    return c.SendString(page)
+})
+```
+
+### Selective ETag Usage
+
+```go
+app.Use(etag.New(etag.Config{
+    Next: func(c fiber.Ctx) bool {
+        // Skip ETag for certain paths
+        return c.Path() == "/api/realtime" || 
+               c.Path() == "/health"
+    },
+}))
+```
+
+### Combining with Cache Middleware
+
+```go
+import (
+    "github.com/gofiber/fiber/v3/middleware/cache"
+    "github.com/gofiber/fiber/v3/middleware/etag"
+)
+
+// Apply both middlewares
+app.Use(etag.New())
+app.Use(cache.New(cache.Config{
+    Expiration: 5 * time.Minute,
+}))
+```
+
+## Client Usage
+
+### Using ETags in HTTP Requests
+
+```bash
+# First request - get ETag
+curl -i http://localhost:3000/api/data
+# Response includes: ETag: "abc123"
+
+# Subsequent request - send If-None-Match
+curl -i http://localhost:3000/api/data -H 'If-None-Match: "abc123"'
+# Response: 304 Not Modified (if content unchanged)
+```
+
+### JavaScript Fetch API
+
+```javascript
+let etag = null;
+
+async function fetchData() {
+    const headers = {};
+    if (etag) {
+        headers['If-None-Match'] = etag;
+    }
+
+    const response = await fetch('/api/data', { headers });
+    
+    if (response.status === 304) {
+        console.log('Using cached data');
+        return cachedData;
+    }
+    
+    etag = response.headers.get('ETag');
+    const data = await response.json();
+    cachedData = data;
+    return data;
+}
+```
+
+## Performance Benefits
+
+- **Reduced Bandwidth**: 304 responses have no body, saving transfer costs
+- **Faster Response Times**: Smaller responses mean quicker page loads
+- **Server Load Reduction**: Less data processing and transmission
+- **CDN Optimization**: Better cache hit rates with proper ETag usage

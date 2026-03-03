@@ -1,0 +1,499 @@
+---
+title: Log
+description: Structured logging API for Fiber applications
+---
+
+The Log API provides a comprehensive logging interface with support for multiple log levels, formatted output, and structured logging with key-value pairs. It includes both a default logger and support for custom logger implementations.
+
+## Overview
+
+Fiber's logging package provides:
+
+- Seven log levels: Trace, Debug, Info, Warn, Error, Fatal, Panic
+- Three logging styles: simple, formatted, and structured (with key-value pairs)
+- Context-aware logging
+- Custom logger support
+- Thread-safe operations
+
+## Log Levels
+
+The available log levels, in order of severity:
+
+```go
+const (
+    LevelTrace Level = iota  // Most verbose
+    LevelDebug
+    LevelInfo                // Default level
+    LevelWarn
+    LevelError
+    LevelFatal               // Logs and exits with os.Exit(1)
+    LevelPanic               // Logs and panics
+)
+```
+
+## Basic Logging
+
+### Trace
+
+Logs at trace level (most verbose).
+
+```go title="Signature"
+func Trace(v ...any)
+```
+
+<ParamField path="v" type="...any" required>
+  Values to log
+</ParamField>
+
+```go title="Example"
+log.Trace("Entering function", "userId:", 123)
+```
+
+### Debug
+
+Logs at debug level.
+
+```go title="Signature"
+func Debug(v ...any)
+```
+
+<ParamField path="v" type="...any" required>
+  Values to log
+</ParamField>
+
+```go title="Example"
+log.Debug("Processing request", requestID)
+```
+
+### Info
+
+Logs at info level (default).
+
+```go title="Signature"
+func Info(v ...any)
+```
+
+<ParamField path="v" type="...any" required>
+  Values to log
+</ParamField>
+
+```go title="Example"
+log.Info("Server started on port", 3000)
+```
+
+### Warn
+
+Logs at warning level.
+
+```go title="Signature"
+func Warn(v ...any)
+```
+
+<ParamField path="v" type="...any" required>
+  Values to log
+</ParamField>
+
+```go title="Example"
+log.Warn("Deprecated API endpoint called")
+```
+
+### Error
+
+Logs at error level.
+
+```go title="Signature"
+func Error(v ...any)
+```
+
+<ParamField path="v" type="...any" required>
+  Values to log
+</ParamField>
+
+```go title="Example"
+log.Error("Database connection failed:", err)
+```
+
+### Fatal
+
+Logs at fatal level and terminates the program with `os.Exit(1)`.
+
+```go title="Signature"
+func Fatal(v ...any)
+```
+
+<ParamField path="v" type="...any" required>
+  Values to log before exiting
+</ParamField>
+
+```go title="Example"
+if err := initDatabase(); err != nil {
+    log.Fatal("Failed to initialize database:", err)
+}
+```
+
+### Panic
+
+Logs at panic level and panics.
+
+```go title="Signature"
+func Panic(v ...any)
+```
+
+<ParamField path="v" type="...any" required>
+  Values to log before panicking
+</ParamField>
+
+```go title="Example"
+if config == nil {
+    log.Panic("Configuration is required")
+}
+```
+
+## Formatted Logging
+
+All log levels have formatted variants using `Printf`-style formatting:
+
+### Tracef, Debugf, Infof, Warnf, Errorf, Fatalf, Panicf
+
+```go title="Signatures"
+func Tracef(format string, v ...any)
+func Debugf(format string, v ...any)
+func Infof(format string, v ...any)
+func Warnf(format string, v ...any)
+func Errorf(format string, v ...any)
+func Fatalf(format string, v ...any)
+func Panicf(format string, v ...any)
+```
+
+<ParamField path="format" type="string" required>
+  Format string (Printf-style)
+</ParamField>
+
+<ParamField path="v" type="...any" required>
+  Values to format
+</ParamField>
+
+```go title="Examples"
+log.Tracef("Function called with args: %v", args)
+log.Debugf("Request ID: %s, User: %s", reqID, username)
+log.Infof("Server listening on %s:%d", host, port)
+log.Warnf("Retry attempt %d of %d", attempt, maxRetries)
+log.Errorf("Failed to process order %s: %v", orderID, err)
+log.Fatalf("Critical error: %v", err)
+log.Panicf("Unexpected state: %v", state)
+```
+
+## Structured Logging
+
+Structured logging with key-value pairs provides better log parsing and filtering:
+
+### Tracew, Debugw, Infow, Warnw, Errorw, Fatalw, Panicw
+
+```go title="Signatures"
+func Tracew(msg string, keysAndValues ...any)
+func Debugw(msg string, keysAndValues ...any)
+func Infow(msg string, keysAndValues ...any)
+func Warnw(msg string, keysAndValues ...any)
+func Errorw(msg string, keysAndValues ...any)
+func Fatalw(msg string, keysAndValues ...any)
+func Panicw(msg string, keysAndValues ...any)
+```
+
+<ParamField path="msg" type="string" required>
+  Log message
+</ParamField>
+
+<ParamField path="keysAndValues" type="...any" required>
+  Alternating keys and values (must be in pairs)
+</ParamField>
+
+```go title="Examples"
+log.Tracew("Function entered",
+    "function", "ProcessOrder",
+    "orderID", orderID,
+)
+
+log.Debugw("Request received",
+    "method", "POST",
+    "path", "/api/users",
+    "ip", c.IP(),
+)
+
+log.Infow("User logged in",
+    "userID", user.ID,
+    "username", user.Name,
+    "loginTime", time.Now(),
+)
+
+log.Warnw("Rate limit approaching",
+    "user", userID,
+    "requests", requestCount,
+    "limit", rateLimit,
+)
+
+log.Errorw("Payment failed",
+    "orderID", order.ID,
+    "amount", order.Total,
+    "error", err.Error(),
+)
+```
+
+**Note:** If you provide an odd number of key-value arguments, "KEYVALS UNPAIRED" will be appended.
+
+## Configuration
+
+### SetLevel
+
+Sets the minimum log level. Messages below this level will not be output.
+
+```go title="Signature"
+func SetLevel(lv Level)
+```
+
+<ParamField path="lv" type="Level" required>
+  The minimum log level to output
+</ParamField>
+
+```go title="Example"
+import "github.com/gofiber/fiber/v3/log"
+
+// Only log warnings and above in production
+if os.Getenv("ENV") == "production" {
+    log.SetLevel(log.LevelWarn)
+} else {
+    log.SetLevel(log.LevelDebug)
+}
+
+log.Debug("This won't show in production")
+log.Warn("This will show in all environments")
+```
+
+### SetOutput
+
+Sets the output destination for logs.
+
+```go title="Signature"
+func SetOutput(w io.Writer)
+```
+
+<ParamField path="w" type="io.Writer" required>
+  The output destination (default is os.Stderr)
+</ParamField>
+
+```go title="Example"
+import (
+    "os"
+    "github.com/gofiber/fiber/v3/log"
+)
+
+// Log to a file
+file, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+if err != nil {
+    log.Fatal(err)
+}
+defer file.Close()
+
+log.SetOutput(file)
+log.Info("Logging to file")
+
+// Log to multiple writers
+import "io"
+
+multiWriter := io.MultiWriter(os.Stdout, file)
+log.SetOutput(multiWriter)
+```
+
+### SetLogger
+
+Sets a custom logger implementation.
+
+```go title="Signature"
+func SetLogger[T any](v AllLogger[T])
+```
+
+<ParamField path="v" type="AllLogger[T]" required>
+  Custom logger that implements the AllLogger interface
+</ParamField>
+
+```go title="Example"
+import (
+    "github.com/gofiber/fiber/v3/log"
+    "go.uber.org/zap"
+)
+
+// Use Zap logger (example)
+zapLogger, _ := zap.NewProduction()
+defer zapLogger.Sync()
+
+// Wrap and set custom logger
+// log.SetLogger(NewZapLogger(zapLogger))
+```
+
+## Context-Aware Logging
+
+### WithContext
+
+Creates a logger bound to a context.
+
+```go title="Signature"
+func WithContext(ctx context.Context) CommonLogger
+```
+
+<ParamField path="ctx" type="context.Context" required>
+  The context to bind to the logger
+</ParamField>
+
+**Returns:** A context-aware logger.
+
+```go title="Example"
+app.Get("/users/:id", func(c fiber.Ctx) error {
+    logger := log.WithContext(c.Context())
+    
+    logger.Infow("Fetching user",
+        "userID", c.Params("id"),
+        "requestID", c.Locals("requestID"),
+    )
+
+    // Use logger throughout the handler
+    user, err := getUserByID(c.Params("id"))
+    if err != nil {
+        logger.Errorw("Failed to fetch user",
+            "userID", c.Params("id"),
+            "error", err,
+        )
+        return err
+    }
+
+    logger.Infow("User fetched successfully",
+        "userID", user.ID,
+        "username", user.Name,
+    )
+
+    return c.JSON(user)
+})
+```
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "os"
+    "time"
+
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/log"
+)
+
+func main() {
+    // Configure logging
+    if os.Getenv("ENV") == "production" {
+        log.SetLevel(log.LevelInfo)
+    } else {
+        log.SetLevel(log.LevelDebug)
+    }
+
+    // Optional: Log to file
+    file, err := os.OpenFile("app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+    if err != nil {
+        log.Fatal("Failed to open log file:", err)
+    }
+    defer file.Close()
+    log.SetOutput(file)
+
+    app := fiber.New()
+
+    // Request logging middleware
+    app.Use(func(c fiber.Ctx) error {
+        start := time.Now()
+
+        log.Debugw("Request started",
+            "method", c.Method(),
+            "path", c.Path(),
+            "ip", c.IP(),
+        )
+
+        err := c.Next()
+
+        log.Infow("Request completed",
+            "method", c.Method(),
+            "path", c.Path(),
+            "status", c.Response().StatusCode(),
+            "duration", time.Since(start),
+        )
+
+        return err
+    })
+
+    app.Get("/users/:id", func(c fiber.Ctx) error {
+        logger := log.WithContext(c.Context())
+        userID := c.Params("id")
+
+        logger.Debugf("Fetching user with ID: %s", userID)
+
+        // Simulate database lookup
+        if userID == "0" {
+            logger.Warnw("Invalid user ID requested",
+                "userID", userID,
+                "ip", c.IP(),
+            )
+            return c.Status(400).SendString("Invalid user ID")
+        }
+
+        logger.Infow("User retrieved successfully",
+            "userID", userID,
+        )
+
+        return c.JSON(fiber.Map{
+            "id":   userID,
+            "name": "John Doe",
+        })
+    })
+
+    app.Post("/orders", func(c fiber.Ctx) error {
+        logger := log.WithContext(c.Context())
+
+        var order struct {
+            ProductID string  `json:"product_id"`
+            Quantity  int     `json:"quantity"`
+            Price     float64 `json:"price"`
+        }
+
+        if err := c.Bind().JSON(&order); err != nil {
+            logger.Errorw("Failed to parse order",
+                "error", err,
+            )
+            return c.Status(400).SendString("Invalid order data")
+        }
+
+        logger.Infow("Order created",
+            "productID", order.ProductID,
+            "quantity", order.Quantity,
+            "price", order.Price,
+            "total", float64(order.Quantity)*order.Price,
+        )
+
+        return c.JSON(fiber.Map{"status": "success"})
+    })
+
+    log.Infof("Starting server on :3000")
+    if err := app.Listen(":3000"); err != nil {
+        log.Fatalf("Failed to start server: %v", err)
+    }
+}
+```
+
+## Best Practices
+
+1. **Use appropriate log levels**: Debug for development, Info for production events, Warn for degraded states, Error for failures
+
+2. **Structured logging**: Prefer `*w` methods for production as they're easier to parse and query
+
+3. **Context awareness**: Use `WithContext()` to propagate request context through your application
+
+4. **Avoid sensitive data**: Never log passwords, tokens, or other sensitive information
+
+5. **Performance**: Logging has overhead; use appropriate levels and avoid excessive logging in hot paths
+
+6. **Consistent formatting**: Use structured logging with consistent key names across your application

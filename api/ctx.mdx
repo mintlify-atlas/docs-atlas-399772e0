@@ -1,0 +1,840 @@
+---
+title: Context API
+description: Complete reference for the Fiber Ctx interface and methods.
+---
+
+The `Ctx` interface represents the HTTP request and response context. It provides methods for accessing request data, sending responses, and managing the request lifecycle.
+
+## Type Definition
+
+```go
+type Handler = func(Ctx) error
+```
+
+## Core Methods
+
+### App
+
+Returns the App instance.
+
+```go
+func (c Ctx) App() *App
+```
+
+<ResponseField name="*App" type="*App">
+  Returns the Fiber app reference.
+</ResponseField>
+
+```go Example
+app.Get("/", func(c fiber.Ctx) error {
+    config := c.App().Config()
+    return c.JSON(config)
+})
+```
+
+### Context
+
+Returns a standard context.Context.
+
+```go
+func (c Ctx) Context() context.Context
+```
+
+<ResponseField name="context.Context" type="context.Context">
+  Returns a context.Context instance safe for async operations.
+</ResponseField>
+
+```go Example
+app.Get("/", func(c fiber.Ctx) error {
+    ctx := c.Context()
+    go doAsyncWork(ctx)
+    return nil
+})
+```
+
+### SetContext
+
+Set a custom context.Context.
+
+```go
+func (c Ctx) SetContext(ctx context.Context)
+```
+
+<ParamField path="ctx" type="context.Context">
+  The context to associate with the request.
+</ParamField>
+
+## Request Methods
+
+### Params
+
+Get route parameters.
+
+```go
+func (c Ctx) Params(key string, defaultValue ...string) string
+```
+
+<ParamField path="key" type="string">
+  The parameter name.
+</ParamField>
+
+<ParamField path="defaultValue" type="string" optional>
+  Default value if parameter doesn't exist.
+</ParamField>
+
+<ResponseField name="string" type="string">
+  Returns the parameter value.
+</ResponseField>
+
+```go Example
+app.Get("/user/:id", func(c fiber.Ctx) error {
+    id := c.Params("id")
+    return c.SendString("User: " + id)
+})
+```
+
+### Query
+
+Get query string parameters.
+
+```go
+func (c Ctx) Query(key string, defaultValue ...string) string
+```
+
+<ParamField path="key" type="string">
+  The query parameter name.
+</ParamField>
+
+<ParamField path="defaultValue" type="string" optional>
+  Default value if parameter doesn't exist.
+</ParamField>
+
+<ResponseField name="string" type="string">
+  Returns the query parameter value.
+</ResponseField>
+
+```go Example
+// GET /search?q=fiber
+app.Get("/search", func(c fiber.Ctx) error {
+    q := c.Query("q")
+    return c.SendString("Query: " + q)
+})
+```
+
+### Queries
+
+Get all query parameters as a map.
+
+```go
+func (c Ctx) Queries() map[string]string
+```
+
+<ResponseField name="map[string]string" type="map[string]string">
+  Returns all query parameters.
+</ResponseField>
+
+### Body
+
+Get the request body (with decompression).
+
+```go
+func (c Ctx) Body() []byte
+```
+
+<ResponseField name="[]byte" type="[]byte">
+  Returns the decompressed request body.
+</ResponseField>
+
+```go Example
+app.Post("/", func(c fiber.Ctx) error {
+    body := c.Body()
+    return c.Send(body)
+})
+```
+
+### BodyRaw
+
+Get the raw request body (without decompression).
+
+```go
+func (c Ctx) BodyRaw() []byte
+```
+
+<ResponseField name="[]byte" type="[]byte">
+  Returns the raw request body.
+</ResponseField>
+
+### Bind
+
+Get the Bind helper for request parsing.
+
+```go
+func (c Ctx) Bind() *Bind
+```
+
+<ResponseField name="*Bind" type="*Bind">
+  Returns the Bind helper instance.
+</ResponseField>
+
+```go Example
+type User struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+app.Post("/user", func(c fiber.Ctx) error {
+    user := new(User)
+    if err := c.Bind().Body(user); err != nil {
+        return err
+    }
+    return c.JSON(user)
+})
+```
+
+## Headers
+
+### Get
+
+Get a request header value.
+
+```go
+func (c Ctx) Get(key string, defaultValue ...string) string
+```
+
+<ParamField path="key" type="string">
+  The header name (case-insensitive).
+</ParamField>
+
+<ParamField path="defaultValue" type="string" optional>
+  Default value if header doesn't exist.
+</ParamField>
+
+<ResponseField name="string" type="string">
+  Returns the header value.
+</ResponseField>
+
+```go Example
+app.Get("/", func(c fiber.Ctx) error {
+    contentType := c.Get("Content-Type")
+    return c.SendString(contentType)
+})
+```
+
+### GetReqHeaders
+
+Get all request headers.
+
+```go
+func (c Ctx) GetReqHeaders() map[string][]string
+```
+
+<ResponseField name="map[string][]string" type="map[string][]string">
+  Returns all request headers.
+</ResponseField>
+
+### Cookies
+
+Get a cookie value.
+
+```go
+func (c Ctx) Cookies(key string, defaultValue ...string) string
+```
+
+<ParamField path="key" type="string">
+  The cookie name.
+</ParamField>
+
+<ParamField path="defaultValue" type="string" optional>
+  Default value if cookie doesn't exist.
+</ParamField>
+
+<ResponseField name="string" type="string">
+  Returns the cookie value.
+</ResponseField>
+
+## Request Information
+
+### Method
+
+Get or override the HTTP method.
+
+```go
+func (c Ctx) Method(override ...string) string
+```
+
+<ParamField path="override" type="string" optional>
+  Optional method to override.
+</ParamField>
+
+<ResponseField name="string" type="string">
+  Returns the HTTP method.
+</ResponseField>
+
+### Path
+
+Get or override the request path.
+
+```go
+func (c Ctx) Path(override ...string) string
+```
+
+<ParamField path="override" type="string" optional>
+  Optional path to override.
+</ParamField>
+
+<ResponseField name="string" type="string">
+  Returns the request path.
+</ResponseField>
+
+### Protocol
+
+Get the protocol (http or https).
+
+```go
+func (c Ctx) Protocol() string
+```
+
+<ResponseField name="string" type="string">
+  Returns "http" or "https".
+</ResponseField>
+
+### Secure
+
+Check if the connection is TLS.
+
+```go
+func (c Ctx) Secure() bool
+```
+
+<ResponseField name="bool" type="bool">
+  Returns true if TLS connection.
+</ResponseField>
+
+### IP
+
+Get the remote IP address.
+
+```go
+func (c Ctx) IP() string
+```
+
+<ResponseField name="string" type="string">
+  Returns the client IP address.
+</ResponseField>
+
+### IPs
+
+Get IP addresses from X-Forwarded-For header.
+
+```go
+func (c Ctx) IPs() []string
+```
+
+<ResponseField name="[]string" type="[]string">
+  Returns array of IP addresses.
+</ResponseField>
+
+### Host
+
+Get the host with port.
+
+```go
+func (c Ctx) Host() string
+```
+
+<ResponseField name="string" type="string">
+  Returns the hostname with port.
+</ResponseField>
+
+### Hostname
+
+Get the hostname without port.
+
+```go
+func (c Ctx) Hostname() string
+```
+
+<ResponseField name="string" type="string">
+  Returns the hostname.
+</ResponseField>
+
+### Port
+
+Get the remote port.
+
+```go
+func (c Ctx) Port() string
+```
+
+<ResponseField name="string" type="string">
+  Returns the port number.
+</ResponseField>
+
+### BaseURL
+
+Get the base URL (protocol + host).
+
+```go
+func (c Ctx) BaseURL() string
+```
+
+<ResponseField name="string" type="string">
+  Returns the base URL.
+</ResponseField>
+
+### OriginalURL
+
+Get the original request URL.
+
+```go
+func (c Ctx) OriginalURL() string
+```
+
+<ResponseField name="string" type="string">
+  Returns the original URL with query string.
+</ResponseField>
+
+### FullURL
+
+Get the full request URL.
+
+```go
+func (c Ctx) FullURL() string
+```
+
+<ResponseField name="string" type="string">
+  Returns the complete URL.
+</ResponseField>
+
+## Response Methods
+
+### Status
+
+Set the response status code.
+
+```go
+func (c Ctx) Status(status int) Ctx
+```
+
+<ParamField path="status" type="int">
+  The HTTP status code.
+</ParamField>
+
+<ResponseField name="Ctx" type="Ctx">
+  Returns the context for chaining.
+</ResponseField>
+
+```go Example
+app.Get("/", func(c fiber.Ctx) error {
+    return c.Status(fiber.StatusOK).SendString("OK")
+})
+```
+
+### SendString
+
+Send a string response.
+
+```go
+func (c Ctx) SendString(s string) error
+```
+
+<ParamField path="s" type="string">
+  The string to send.
+</ParamField>
+
+<ResponseField name="error" type="error">
+  Returns an error if send fails.
+</ResponseField>
+
+### SendStatus
+
+Send only a status code.
+
+```go
+func (c Ctx) SendStatus(status int) error
+```
+
+<ParamField path="status" type="int">
+  The HTTP status code.
+</ParamField>
+
+<ResponseField name="error" type="error">
+  Returns an error if send fails.
+</ResponseField>
+
+### JSON
+
+Send a JSON response.
+
+```go
+func (c Ctx) JSON(data any) error
+```
+
+<ParamField path="data" type="any">
+  The data to serialize as JSON.
+</ParamField>
+
+<ResponseField name="error" type="error">
+  Returns an error if serialization or send fails.
+</ResponseField>
+
+```go Example
+app.Get("/api/user", func(c fiber.Ctx) error {
+    return c.JSON(fiber.Map{
+        "name": "John",
+        "age":  25,
+    })
+})
+```
+
+### XML
+
+Send an XML response.
+
+```go
+func (c Ctx) XML(data any) error
+```
+
+<ParamField path="data" type="any">
+  The data to serialize as XML.
+</ParamField>
+
+<ResponseField name="error" type="error">
+  Returns an error if serialization or send fails.
+</ResponseField>
+
+### Send
+
+Send a byte response.
+
+```go
+func (c Ctx) Send(b []byte) error
+```
+
+<ParamField path="b" type="[]byte">
+  The bytes to send.
+</ParamField>
+
+<ResponseField name="error" type="error">
+  Returns an error if send fails.
+</ResponseField>
+
+### SendFile
+
+Send a file as response.
+
+```go
+func (c Ctx) SendFile(path string, compress ...bool) error
+```
+
+<ParamField path="path" type="string">
+  The file path to send.
+</ParamField>
+
+<ParamField path="compress" type="bool" optional>
+  Enable compression (default: true).
+</ParamField>
+
+<ResponseField name="error" type="error">
+  Returns an error if file send fails.
+</ResponseField>
+
+### Redirect
+
+Get the redirect helper.
+
+```go
+func (c Ctx) Redirect() *Redirect
+```
+
+<ResponseField name="*Redirect" type="*Redirect">
+  Returns the Redirect helper instance.
+</ResponseField>
+
+```go Example
+app.Get("/old", func(c fiber.Ctx) error {
+    return c.Redirect().To("/new")
+})
+```
+
+## Headers & Cookies (Response)
+
+### Set
+
+Set a response header.
+
+```go
+func (c Ctx) Set(key, value string)
+```
+
+<ParamField path="key" type="string">
+  The header name.
+</ParamField>
+
+<ParamField path="value" type="string">
+  The header value.
+</ParamField>
+
+### Append
+
+Append a value to a response header.
+
+```go
+func (c Ctx) Append(key, value string)
+```
+
+<ParamField path="key" type="string">
+  The header name.
+</ParamField>
+
+<ParamField path="value" type="string">
+  The value to append.
+</ParamField>
+
+### Cookie
+
+Set a cookie.
+
+```go
+func (c Ctx) Cookie(cookie *Cookie)
+```
+
+<ParamField path="cookie" type="*Cookie">
+  The cookie to set.
+</ParamField>
+
+```go Example
+app.Get("/", func(c fiber.Ctx) error {
+    c.Cookie(&fiber.Cookie{
+        Name:  "session",
+        Value: "abc123",
+        MaxAge: 3600,
+    })
+    return c.SendString("Cookie set")
+})
+```
+
+### ClearCookie
+
+Clear a cookie.
+
+```go
+func (c Ctx) ClearCookie(key ...string)
+```
+
+<ParamField path="key" type="...string" optional>
+  Cookie names to clear. If omitted, clears all cookies.
+</ParamField>
+
+## Route & Locals
+
+### Route
+
+Get the current route.
+
+```go
+func (c Ctx) Route() *Route
+```
+
+<ResponseField name="*Route" type="*Route">
+  Returns the matched route.
+</ResponseField>
+
+### Locals
+
+Store or retrieve local values.
+
+```go
+func (c Ctx) Locals(key any, value ...any) any
+```
+
+<ParamField path="key" type="any">
+  The key to store/retrieve.
+</ParamField>
+
+<ParamField path="value" type="any" optional>
+  The value to store.
+</ParamField>
+
+<ResponseField name="any" type="any">
+  Returns the stored value.
+</ResponseField>
+
+```go Example
+app.Use(func(c fiber.Ctx) error {
+    c.Locals("user", "john")
+    return c.Next()
+})
+
+app.Get("/", func(c fiber.Ctx) error {
+    user := c.Locals("user").(string)
+    return c.SendString("Hello " + user)
+})
+```
+
+## Control Flow
+
+### Next
+
+Execute the next handler in the stack.
+
+```go
+func (c Ctx) Next() error
+```
+
+<ResponseField name="error" type="error">
+  Returns an error from the next handler.
+</ResponseField>
+
+```go Example
+app.Use(func(c fiber.Ctx) error {
+    fmt.Println("Before")
+    err := c.Next()
+    fmt.Println("After")
+    return err
+})
+```
+
+### RestartRouting
+
+Restart routing from the first handler.
+
+```go
+func (c Ctx) RestartRouting() error
+```
+
+<ResponseField name="error" type="error">
+  Returns an error if routing fails.
+</ResponseField>
+
+## Content Negotiation
+
+### Accepts
+
+Check if the client accepts a content type.
+
+```go
+func (c Ctx) Accepts(offers ...string) string
+```
+
+<ParamField path="offers" type="...string">
+  Content types or extensions to check.
+</ParamField>
+
+<ResponseField name="string" type="string">
+  Returns the best match or empty string.
+</ResponseField>
+
+### AcceptsJSON
+
+Check if the client accepts JSON.
+
+```go
+func (c Ctx) AcceptsJSON() bool
+```
+
+<ResponseField name="bool" type="bool">
+  Returns true if JSON is accepted.
+</ResponseField>
+
+### AcceptsHTML
+
+Check if the client accepts HTML.
+
+```go
+func (c Ctx) AcceptsHTML() bool
+```
+
+<ResponseField name="bool" type="bool">
+  Returns true if HTML is accepted.
+</ResponseField>
+
+### AcceptsXML
+
+Check if the client accepts XML.
+
+```go
+func (c Ctx) AcceptsXML() bool
+```
+
+<ResponseField name="bool" type="bool">
+  Returns true if XML is accepted.
+</ResponseField>
+
+## Utilities
+
+### Is
+
+Check the Content-Type.
+
+```go
+func (c Ctx) Is(extension string) bool
+```
+
+<ParamField path="extension" type="string">
+  The content type or extension to check.
+</ParamField>
+
+<ResponseField name="bool" type="bool">
+  Returns true if content type matches.
+</ResponseField>
+
+### IsJSON
+
+Check if Content-Type is JSON.
+
+```go
+func (c Ctx) IsJSON() bool
+```
+
+<ResponseField name="bool" type="bool">
+  Returns true if JSON.
+</ResponseField>
+
+### IsForm
+
+Check if Content-Type is form-encoded.
+
+```go
+func (c Ctx) IsForm() bool
+```
+
+<ResponseField name="bool" type="bool">
+  Returns true if form-encoded.
+</ResponseField>
+
+### Fresh
+
+Check if the response is fresh.
+
+```go
+func (c Ctx) Fresh() bool
+```
+
+<ResponseField name="bool" type="bool">
+  Returns true if response is still fresh.
+</ResponseField>
+
+### Stale
+
+Check if the response is stale.
+
+```go
+func (c Ctx) Stale() bool
+```
+
+<ResponseField name="bool" type="bool">
+  Returns true if response is stale.
+</ResponseField>
+
+### XHR
+
+Check if request is XMLHttpRequest.
+
+```go
+func (c Ctx) XHR() bool
+```
+
+<ResponseField name="bool" type="bool">
+  Returns true if XHR request.
+</ResponseField>

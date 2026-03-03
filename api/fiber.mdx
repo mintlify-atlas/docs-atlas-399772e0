@@ -1,0 +1,386 @@
+---
+title: Fiber Core Types
+description: Core types, interfaces, and configuration for Fiber applications.
+---
+
+Core type definitions and configuration options for the Fiber web framework.
+
+## Core Types
+
+### Handler
+
+The signature for all route handlers and middleware.
+
+```go
+type Handler = func(Ctx) error
+```
+
+Handlers receive a `Ctx` (context) and return an error. If a handler returns an error, Fiber will invoke the error handler.
+
+```go Example
+func myHandler(c fiber.Ctx) error {
+    return c.SendString("Hello, World!")
+}
+
+app.Get("/", myHandler)
+```
+
+### Map
+
+A shortcut type for `map[string]any`, useful for JSON responses.
+
+```go
+type Map map[string]any
+```
+
+```go Example
+app.Get("/api/user", func(c fiber.Ctx) error {
+    return c.JSON(fiber.Map{
+        "name":  "John Doe",
+        "email": "john@example.com",
+        "age":   30,
+    })
+})
+```
+
+### Error
+
+Represents an HTTP error with a status code and message.
+
+```go
+type Error struct {
+    Code    int    `json:"code"`
+    Message string `json:"message"`
+}
+```
+
+#### NewError
+
+Create a new Fiber error.
+
+```go
+func NewError(code int, message ...string) *Error
+```
+
+<ParamField path="code" type="int">
+  The HTTP status code.
+</ParamField>
+
+<ParamField path="message" type="string" optional>
+  Optional error message.
+</ParamField>
+
+<ResponseField name="*Error" type="*Error">
+  Returns a new Error instance.
+</ResponseField>
+
+```go Example
+app.Get("/admin", func(c fiber.Ctx) error {
+    if !isAdmin(c) {
+        return fiber.NewError(fiber.StatusForbidden, "Admin access required")
+    }
+    return c.SendString("Admin panel")
+})
+```
+
+### ErrorHandler
+
+The signature for custom error handlers.
+
+```go
+type ErrorHandler = func(Ctx, error) error
+```
+
+```go Example
+app := fiber.New(fiber.Config{
+    ErrorHandler: func(c fiber.Ctx, err error) error {
+        code := fiber.StatusInternalServerError
+        
+        if e, ok := err.(*fiber.Error); ok {
+            code = e.Code
+        }
+        
+        return c.Status(code).JSON(fiber.Map{
+            "error": err.Error(),
+        })
+    },
+})
+```
+
+## Configuration
+
+### Config
+
+Configuration options for creating a new Fiber app.
+
+```go
+type Config struct {
+    // Server settings
+    AppName      string
+    ServerHeader string
+    
+    // Routing
+    CaseSensitive bool
+    StrictRouting bool
+    
+    // Limits
+    BodyLimit  int
+    Concurrency int
+    
+    // And many more options...
+}
+```
+
+#### Key Configuration Fields
+
+<ParamField path="AppName" type="string" default="">
+  Application name used in logs and Server header.
+</ParamField>
+
+<ParamField path="ServerHeader" type="string" default="">
+  Sets the Server HTTP header value.
+</ParamField>
+
+<ParamField path="CaseSensitive" type="bool" default="false">
+  When enabled, `/Foo` and `/foo` are different routes.
+</ParamField>
+
+<ParamField path="StrictRouting" type="bool" default="false">
+  When enabled, `/foo` and `/foo/` are different routes.
+</ParamField>
+
+<ParamField path="BodyLimit" type="int" default="4 * 1024 * 1024">
+  Maximum request body size in bytes (4MB default).
+</ParamField>
+
+<ParamField path="ReadTimeout" type="time.Duration" default="0">
+  Maximum duration for reading the full request including body.
+</ParamField>
+
+<ParamField path="WriteTimeout" type="time.Duration" default="0">
+  Maximum duration before timing out writes of the response.
+</ParamField>
+
+<ParamField path="IdleTimeout" type="time.Duration" default="0">
+  Maximum amount of time to wait for the next request when keep-alive is enabled.
+</ParamField>
+
+<ParamField path="Concurrency" type="int" default="256 * 1024">
+  Maximum number of concurrent connections.
+</ParamField>
+
+<ParamField path="DisableKeepalive" type="bool" default="false">
+  Disable keep-alive connections.
+</ParamField>
+
+<ParamField path="DisableDefaultContentType" type="bool" default="false">
+  When true, omits default Content-Type header.
+</ParamField>
+
+<ParamField path="DisableDefaultDate" type="bool" default="false">
+  When true, omits default Date header.
+</ParamField>
+
+<ParamField path="DisableHeaderNormalizing" type="bool" default="false">
+  Disable header name normalization.
+</ParamField>
+
+<ParamField path="Immutable" type="bool" default="false">
+  When enabled, all values returned by context methods are immutable.
+</ParamField>
+
+<ParamField path="UnescapePath" type="bool" default="false">
+  Decode encoded characters in the route path.
+</ParamField>
+
+<ParamField path="Views" type="Views" default="nil">
+  Template engine for rendering views.
+</ParamField>
+
+<ParamField path="ViewsLayout" type="string" default="">
+  Global layout for template rendering.
+</ParamField>
+
+<ParamField path="PassLocalsToViews" type="bool" default="false">
+  Pass c.Locals() values to template engine.
+</ParamField>
+
+<ParamField path="JSONEncoder" type="utils.JSONMarshal" default="json.Marshal">
+  Custom JSON encoder function.
+</ParamField>
+
+<ParamField path="JSONDecoder" type="utils.JSONUnmarshal" default="json.Unmarshal">
+  Custom JSON decoder function.
+</ParamField>
+
+<ParamField path="XMLEncoder" type="utils.XMLMarshal" default="xml.Marshal">
+  Custom XML encoder function.
+</ParamField>
+
+<ParamField path="XMLDecoder" type="utils.XMLUnmarshal" default="xml.Unmarshal">
+  Custom XML decoder function.
+</ParamField>
+
+<ParamField path="ErrorHandler" type="ErrorHandler" default="DefaultErrorHandler">
+  Custom error handler function.
+</ParamField>
+
+<ParamField path="EnableIPValidation" type="bool" default="false">
+  Validate IP addresses before returning them.
+</ParamField>
+
+<ParamField path="TrustProxy" type="bool" default="false">
+  Trust proxy headers for IP, protocol, and host.
+</ParamField>
+
+<ParamField path="ProxyHeader" type="string" default="">
+  Header name for proxy IP address.
+</ParamField>
+
+<ParamField path="ReduceMemoryUsage" type="bool" default="false">
+  Aggressively reduce memory usage at the cost of higher CPU usage.
+</ParamField>
+
+<ParamField path="GETOnly" type="bool" default="false">
+  Reject all non-GET requests.
+</ParamField>
+
+```go Example
+app := fiber.New(fiber.Config{
+    AppName:      "My Application",
+    ServerHeader: "Fiber",
+    BodyLimit:    10 * 1024 * 1024, // 10MB
+    CaseSensitive: true,
+    StrictRouting: true,
+    Immutable:     true,
+    ErrorHandler: func(c fiber.Ctx, err error) error {
+        code := fiber.StatusInternalServerError
+        if e, ok := err.(*fiber.Error); ok {
+            code = e.Code
+        }
+        return c.Status(code).SendString(err.Error())
+    },
+})
+```
+
+### ListenConfig
+
+Configuration for server listening.
+
+```go
+type ListenConfig struct {
+    DisableStartupMessage bool
+    EnablePrefork        bool
+    CertFile            string
+    CertKeyFile         string
+    CertClientFile      string
+    BeforeServeFunc     func(app *App) error
+}
+```
+
+<ParamField path="DisableStartupMessage" type="bool" default="false">
+  Disable the startup banner.
+</ParamField>
+
+<ParamField path="EnablePrefork" type="bool" default="false">
+  Enable prefork mode (multiple processes).
+</ParamField>
+
+<ParamField path="CertFile" type="string" default="">
+  Path to TLS certificate file.
+</ParamField>
+
+<ParamField path="CertKeyFile" type="string" default="">
+  Path to TLS private key file.
+</ParamField>
+
+<ParamField path="CertClientFile" type="string" default="">
+  Path to client certificate for mTLS.
+</ParamField>
+
+<ParamField path="BeforeServeFunc" type="func(app *App) error" default="nil">
+  Callback executed before serving.
+</ParamField>
+
+```go Example
+app.Listen(":3000", fiber.ListenConfig{
+    EnablePrefork: true,
+    CertFile:      "./cert.pem",
+    CertKeyFile:   "./key.pem",
+})
+```
+
+### TestConfig
+
+Configuration for testing with app.Test().
+
+```go
+type TestConfig struct {
+    Timeout      time.Duration
+    FailOnTimeout bool
+}
+```
+
+<ParamField path="Timeout" type="time.Duration" default="1s">
+  Maximum duration for the test request.
+</ParamField>
+
+<ParamField path="FailOnTimeout" type="bool" default="true">
+  Whether to fail the test on timeout.
+</ParamField>
+
+## Constants
+
+Fiber exports many constants for HTTP methods, status codes, headers, and MIME types. See the [constants.mdx](/api/constants) page for a complete reference.
+
+### Version
+
+The current Fiber version.
+
+```go
+const Version = "3.1.0"
+```
+
+## Interfaces
+
+### Views
+
+Interface for template engines.
+
+```go
+type Views interface {
+    Load() error
+    Render(io.Writer, string, interface{}, ...string) error
+}
+```
+
+### Router
+
+Interface for routing operations.
+
+```go
+type Router interface {
+    Use(args ...any) Router
+    Get(path string, handlers ...Handler) Router
+    Post(path string, handlers ...Handler) Router
+    Put(path string, handlers ...Handler) Router
+    Delete(path string, handlers ...Handler) Router
+    Patch(path string, handlers ...Handler) Router
+    // ... and more HTTP methods
+    Group(prefix string, handlers ...any) Router
+    Route(prefix string, fn func(Router), name ...string) Router
+    Name(name string) Router
+}
+```
+
+### CustomCtx
+
+Extended context interface for custom implementations.
+
+```go
+type CustomCtx interface {
+    Ctx
+    Reset(fctx *fasthttp.RequestCtx)
+    // Internal methods...
+}
+```

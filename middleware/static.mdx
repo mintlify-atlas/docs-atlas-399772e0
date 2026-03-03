@@ -1,0 +1,332 @@
+---
+title: Static
+description: Static file serving middleware for Fiber
+---
+
+Static middleware for Fiber serves static files from a specified directory or embedded filesystem. It provides features like directory browsing, file caching, compression, and byte range requests.
+
+## Signatures
+
+```go
+func New(root string, config ...Config) fiber.Handler
+```
+
+## Usage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/static"
+)
+```
+
+### Basic Usage
+
+```go
+// Serve files from ./public directory
+app.Use("/", static.New("./public"))
+
+// Or using app.Static shorthand
+app.Static("/", "./public")
+```
+
+### Custom Configuration
+
+```go
+app.Use("/assets", static.New("./public", static.Config{
+    Compress:  true,
+    ByteRange: true,
+    Browse:    false,
+    MaxAge:    3600,
+}))
+```
+
+### Embedded Filesystem
+
+```go
+import "embed"
+
+//go:embed public/*
+var embedFS embed.FS
+
+app.Use("/", static.New("", static.Config{
+    FS: embedFS,
+}))
+```
+
+### Multiple Static Directories
+
+```go
+app.Static("/css", "./public/stylesheets")
+app.Static("/js", "./public/scripts")
+app.Static("/images", "./public/img")
+```
+
+## Configuration
+
+<ParamField path="FS" type="fs.FS" default="nil">
+The file system to serve files from. You can use interfaces compatible with `fs.FS` like `embed.FS`, `os.DirFS`, etc. If not specified, uses the local filesystem.
+</ParamField>
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+Defines a function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="ModifyResponse" type="fiber.Handler" default="nil">
+Defines a function that allows you to alter the response before it's sent.
+</ParamField>
+
+<ParamField path="NotFoundHandler" type="fiber.Handler" default="nil">
+Defines a function to handle requests when the file path is not found.
+</ParamField>
+
+<ParamField path="IndexNames" type="[]string" default='["index.html"]'>
+The names of the index files for serving a directory. When a directory is requested, these files are checked in order.
+</ParamField>
+
+<ParamField path="CacheDuration" type="time.Duration" default="10 * time.Second">
+Expiration duration for inactive file handlers. Use a negative value to disable caching.
+</ParamField>
+
+<ParamField path="MaxAge" type="int" default="0">
+The value for the `Cache-Control` HTTP header that is set on the file response. MaxAge is defined in seconds.
+</ParamField>
+
+<ParamField path="Compress" type="bool" default="false">
+When set to true, the server tries minimizing CPU usage by caching compressed files. This works differently than the compression middleware.
+</ParamField>
+
+<ParamField path="ByteRange" type="bool" default="false">
+When set to true, enables byte range requests for partial content delivery (useful for video streaming).
+</ParamField>
+
+<ParamField path="Browse" type="bool" default="false">
+When set to true, enables directory browsing and generates directory listings.
+</ParamField>
+
+<ParamField path="Download" type="bool" default="false">
+When set to true, enables direct download by setting the `Content-Disposition` header to attachment.
+</ParamField>
+
+## Default Config
+
+```go
+var ConfigDefault = Config{
+    IndexNames:    []string{"index.html"},
+    CacheDuration: 10 * time.Second,
+}
+```
+
+## Common Use Cases
+
+### Serve SPA (Single Page Application)
+
+```go
+app.Static("/", "./dist")
+
+// Fallback to index.html for SPA routing
+app.Use(func(c fiber.Ctx) error {
+    return c.SendFile("./dist/index.html")
+})
+```
+
+### Serve with Browser Caching
+
+```go
+app.Use("/static", static.New("./public", static.Config{
+    MaxAge: 86400, // 1 day in seconds
+}))
+```
+
+### Enable Compression
+
+```go
+app.Use("/assets", static.New("./public", static.Config{
+    Compress: true,
+    MaxAge:   86400,
+}))
+```
+
+### Video Streaming
+
+```go
+app.Use("/videos", static.New("./media", static.Config{
+    ByteRange: true,
+    MaxAge:    3600,
+}))
+```
+
+### Directory Browsing
+
+```go
+app.Use("/files", static.New("./documents", static.Config{
+    Browse: true,
+}))
+```
+
+### File Downloads
+
+```go
+app.Use("/downloads", static.New("./files", static.Config{
+    Download: true,
+}))
+```
+
+### Embedded Static Files
+
+```go
+import "embed"
+
+//go:embed dist/*
+var distFS embed.FS
+
+app.Use("/", static.New("", static.Config{
+    FS: distFS,
+}))
+```
+
+### Custom 404 Handler
+
+```go
+app.Use("/assets", static.New("./public", static.Config{
+    NotFoundHandler: func(c fiber.Ctx) error {
+        return c.Status(404).SendString("Asset not found")
+    },
+}))
+```
+
+### Modify Response Headers
+
+```go
+app.Use("/files", static.New("./public", static.Config{
+    ModifyResponse: func(c fiber.Ctx) error {
+        c.Set("X-Served-By", "Fiber Static")
+        return c.Next()
+    },
+}))
+```
+
+### Multiple Index Files
+
+```go
+app.Use("/", static.New("./public", static.Config{
+    IndexNames: []string{"index.html", "index.htm", "default.html"},
+}))
+```
+
+## Best Practices
+
+### Use Path Prefix for Organization
+
+```go
+// Good - organized under /static
+app.Static("/static", "./public")
+
+// Avoid - serves from root
+app.Static("/", "./public")
+```
+
+### Enable Caching in Production
+
+```go
+if os.Getenv("ENV") == "production" {
+    app.Static("/assets", "./public", static.Config{
+        Compress: true,
+        MaxAge:   86400 * 7, // 1 week
+    })
+} else {
+    app.Static("/assets", "./public")
+}
+```
+
+### Secure Directory Browsing
+
+```go
+// Only enable in development
+app.Use("/files", static.New("./uploads", static.Config{
+    Browse: os.Getenv("ENV") == "development",
+}))
+```
+
+### Handle Static Files Before Routes
+
+```go
+// Middleware
+app.Use(logger.New())
+
+// Static files
+app.Static("/public", "./public")
+
+// Routes
+app.Get("/api/users", getUsers)
+```
+
+### Use Embedded FS in Production
+
+```go
+import "embed"
+
+//go:embed dist
+var dist embed.FS
+
+if os.Getenv("ENV") == "production" {
+    app.Use("/", static.New("", static.Config{
+        FS:     dist,
+        MaxAge: 86400,
+    }))
+} else {
+    app.Static("/", "./dist")
+}
+```
+
+### Disable Caching for Development
+
+```go
+app.Use("/assets", static.New("./public", static.Config{
+    CacheDuration: -1, // Disable file caching
+}))
+```
+
+## Performance Tips
+
+### Enable Compression for Text Files
+
+```go
+// Compress text-based assets (CSS, JS, HTML)
+app.Use("/assets", static.New("./public", static.Config{
+    Compress: true,
+}))
+```
+
+### Set Appropriate Cache Duration
+
+```go
+// Short cache for frequently changing files
+app.Static("/", "./dist", static.Config{
+    CacheDuration: 5 * time.Second,
+})
+
+// Long cache for versioned assets
+app.Static("/static", "./public", static.Config{
+    CacheDuration: 1 * time.Hour,
+    MaxAge:        86400 * 365, // 1 year
+})
+```
+
+### Use Byte Range for Large Files
+
+```go
+// Enable for video, audio, and large downloads
+app.Static("/media", "./media", static.Config{
+    ByteRange: true,
+})
+```
+
+## Notes
+
+- Files are cached in memory based on `CacheDuration` to improve performance
+- The `Compress` option caches compressed versions of files, not on-the-fly compression
+- When using embedded filesystems, the binary includes all files at compile time
+- Directory browsing can be a security risk - only enable when necessary
+- `MaxAge: 0` means no browser caching; files are re-validated on each request
+- Byte range requests are essential for video streaming and large file downloads

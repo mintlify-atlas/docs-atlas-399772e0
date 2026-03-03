@@ -1,0 +1,254 @@
+---
+title: Health Check
+description: Add liveness, readiness, and startup probes to your application
+---
+
+Healthcheck middleware provides liveness, readiness, and startup probe endpoints for Fiber applications, following Kubernetes health check conventions.
+
+## Installation
+
+```bash
+go get -u github.com/gofiber/fiber/v3
+go get -u github.com/gofiber/fiber/v3/middleware/healthcheck
+```
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Constants
+
+```go
+const (
+    LivenessEndpoint  = "/livez"    // Liveness probe endpoint
+    ReadinessEndpoint = "/readyz"   // Readiness probe endpoint
+    StartupEndpoint   = "/startupz" // Startup probe endpoint
+)
+```
+
+## Usage
+
+### Basic Usage
+
+```go
+package main
+
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/healthcheck"
+)
+
+func main() {
+    app := fiber.New()
+
+    // Use default health checks (always return true)
+    app.Get(healthcheck.LivenessEndpoint, healthcheck.New())
+    app.Get(healthcheck.ReadinessEndpoint, healthcheck.New())
+    app.Get(healthcheck.StartupEndpoint, healthcheck.New())
+
+    app.Listen(":3000")
+}
+```
+
+### Custom Probes
+
+```go
+var (
+    dbReady    = false
+    cacheReady = false
+    started    = false
+)
+
+// Liveness: Is the application running?
+app.Get(healthcheck.LivenessEndpoint, healthcheck.New())
+
+// Readiness: Can the application handle requests?
+app.Get(healthcheck.ReadinessEndpoint, healthcheck.New(healthcheck.Config{
+    Probe: func(c fiber.Ctx) bool {
+        return dbReady && cacheReady
+    },
+}))
+
+// Startup: Has the application finished starting up?
+app.Get(healthcheck.StartupEndpoint, healthcheck.New(healthcheck.Config{
+    Probe: func(c fiber.Ctx) bool {
+        return started
+    },
+}))
+```
+
+### Custom Endpoints
+
+```go
+// Use custom endpoint names
+app.Get("/health", healthcheck.New())
+app.Get("/ready", healthcheck.New(healthcheck.Config{
+    Probe: func(c fiber.Ctx) bool {
+        return checkDependencies()
+    },
+}))
+```
+
+### All Methods Support
+
+```go
+// Respond to all HTTP methods
+app.All("/healthz", healthcheck.New())
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+  Function to skip this middleware when it returns true. Note: If this returns true and no other handlers are defined for the route, Fiber returns 404 Not Found.
+</ParamField>
+
+<ParamField path="Probe" type="func(fiber.Ctx) bool" default="func(c fiber.Ctx) bool { return true }">
+  Function executed to determine health state. Returning `true` indicates the application is healthy (200 OK), `false` indicates unhealthy (503 Service Unavailable).
+</ParamField>
+
+## Default Configuration
+
+```go
+func defaultProbe(_ fiber.Ctx) bool { return true }
+
+var ConfigDefault = Config{
+    Next:  nil,
+    Probe: defaultProbe,
+}
+```
+
+## Best Practices
+
+### Probe Types
+
+- **Liveness**: Checks if the application is running. If this fails, the container should be restarted.
+- **Readiness**: Checks if the application is ready to accept traffic. If this fails, traffic should be stopped.
+- **Startup**: Checks if the application has finished starting. Protects slow-starting containers from premature termination.
+
+### Kubernetes Configuration
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-app
+spec:
+  containers:
+  - name: app
+    image: my-app:latest
+    livenessProbe:
+      httpGet:
+        path: /livez
+        port: 3000
+      initialDelaySeconds: 3
+      periodSeconds: 10
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 3000
+      initialDelaySeconds: 5
+      periodSeconds: 5
+    startupProbe:
+      httpGet:
+        path: /startupz
+        port: 3000
+      failureThreshold: 30
+      periodSeconds: 10
+```
+
+## Common Patterns
+
+### Database Health Check
+
+```go
+func checkDatabase(db *sql.DB) bool {
+    ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+    defer cancel()
+    return db.PingContext(ctx) == nil
+}
+
+app.Get(healthcheck.ReadinessEndpoint, healthcheck.New(healthcheck.Config{
+    Probe: func(c fiber.Ctx) bool {
+        return checkDatabase(db)
+    },
+}))
+```
+
+### Multiple Service Dependencies
+
+```go
+type HealthChecker struct {
+    db    *sql.DB
+    cache *redis.Client
+}
+
+func (h *HealthChecker) IsReady() bool {
+    // Check all dependencies
+    dbOK := h.db.Ping() == nil
+    cacheOK := h.cache.Ping(context.Background()).Err() == nil
+    return dbOK && cacheOK
+}
+
+checker := &HealthChecker{db: db, cache: cache}
+
+app.Get(healthcheck.ReadinessEndpoint, healthcheck.New(healthcheck.Config{
+    Probe: func(c fiber.Ctx) bool {
+        return checker.IsReady()
+    },
+}))
+```
+
+### Startup Probe with Initialization
+
+```go
+var startupComplete atomic.Bool
+
+func main() {
+    app := fiber.New()
+
+    // Startup probe
+    app.Get(healthcheck.StartupEndpoint, healthcheck.New(healthcheck.Config{
+        Probe: func(c fiber.Ctx) bool {
+            return startupComplete.Load()
+        },
+    }))
+
+    // Run initialization in background
+    go func() {
+        initializeDatabase()
+        warmupCache()
+        startupComplete.Store(true)
+    }()
+
+    app.Listen(":3000")
+}
+```
+
+### Graceful Shutdown
+
+```go
+var shutdownInitiated atomic.Bool
+
+app.Get(healthcheck.ReadinessEndpoint, healthcheck.New(healthcheck.Config{
+    Probe: func(c fiber.Ctx) bool {
+        // Stop receiving traffic during shutdown
+        return !shutdownInitiated.Load()
+    },
+}))
+
+// Graceful shutdown handler
+go func() {
+    <-sigChan
+    shutdownInitiated.Store(true)
+    time.Sleep(5 * time.Second) // Allow load balancer to drain
+    app.Shutdown()
+}()
+```
+
+## Response Codes
+
+- **200 OK**: Probe returned `true` (healthy)
+- **503 Service Unavailable**: Probe returned `false` (unhealthy)
+- **404 Not Found**: `Next` function returned `true` and no other handlers are defined

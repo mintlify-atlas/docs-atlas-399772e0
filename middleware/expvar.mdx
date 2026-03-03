@@ -1,0 +1,159 @@
+---
+title: ExpVar
+description: Expose runtime variables over HTTP in JSON format for debugging and monitoring
+---
+
+The ExpVar middleware exposes runtime variables over HTTP in JSON format. Using it registers handlers on `/debug/vars` to provide insights into your application's runtime state.
+
+## Installation
+
+```bash
+go get -u github.com/gofiber/fiber/v3
+go get -u github.com/gofiber/fiber/v3/middleware/expvar
+```
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Usage
+
+### Basic Usage
+
+```go
+package main
+
+import (
+    "expvar"
+    "fmt"
+    "github.com/gofiber/fiber/v3"
+    expvarmw "github.com/gofiber/fiber/v3/middleware/expvar"
+)
+
+func main() {
+    app := fiber.New()
+
+    // Create custom variables
+    var count = expvar.NewInt("count")
+
+    // Register ExpVar middleware
+    app.Use(expvarmw.New())
+
+    app.Get("/", func(c fiber.Ctx) error {
+        count.Add(1)
+        return c.SendString(fmt.Sprintf("hello expvar count %d", count.Value()))
+    })
+
+    app.Listen(":3000")
+}
+```
+
+### Custom Configuration
+
+```go
+app.Use(expvarmw.New(expvarmw.Config{
+    Next: func(c fiber.Ctx) bool {
+        // Skip middleware for certain paths
+        return c.Path() == "/health"
+    },
+}))
+```
+
+## Examples
+
+Visit `/debug/vars` to see all exported variables:
+
+```bash
+curl http://127.0.0.1:3000
+# hello expvar count 1
+
+curl http://127.0.0.1:3000/debug/vars
+# {
+#     "cmdline": ["./app"],
+#     "count": 1,
+#     "expvarHandlerCalls": 1,
+#     "expvarRegexpErrors": 0,
+#     "memstats": {...}
+# }
+```
+
+Filter output using the `?r=` query parameter with a regular expression:
+
+```bash
+curl http://127.0.0.1:3000/debug/vars?r=c
+# {
+#     "cmdline": ["./app"],
+#     "count": 1
+# }
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+  Function to skip this middleware when it returns true.
+</ParamField>
+
+## Default Configuration
+
+```go
+var ConfigDefault = Config{
+    Next: nil,
+}
+```
+
+## Best Practices
+
+- Mount the middleware early in your middleware stack
+- Use custom variables to track application-specific metrics
+- Secure the `/debug/vars` endpoint in production environments
+- Consider using the `Next` function to restrict access based on IP or authentication
+- Combine with monitoring tools that can scrape JSON endpoints
+
+## Common Patterns
+
+### Track Request Counts by Route
+
+```go
+var (
+    homeRequests = expvar.NewInt("home_requests")
+    apiRequests  = expvar.NewInt("api_requests")
+)
+
+app.Get("/", func(c fiber.Ctx) error {
+    homeRequests.Add(1)
+    return c.SendString("Home")
+})
+
+app.Get("/api", func(c fiber.Ctx) error {
+    apiRequests.Add(1)
+    return c.JSON(fiber.Map{"status": "ok"})
+})
+```
+
+### Expose Custom Application State
+
+```go
+var stats = expvar.NewMap("stats")
+
+func init() {
+    stats.Set("start_time", expvar.Func(func() any {
+        return time.Now().Format(time.RFC3339)
+    }))
+}
+```
+
+### Restrict Access in Production
+
+```go
+app.Use(expvarmw.New(expvarmw.Config{
+    Next: func(c fiber.Ctx) bool {
+        // Only allow localhost in production
+        if os.Getenv("ENV") == "production" {
+            return c.IP() != "127.0.0.1"
+        }
+        return false
+    },
+}))
+```

@@ -1,0 +1,266 @@
+---
+title: Skip
+description: Conditional middleware execution wrapper for Fiber
+---
+
+Skip is a wrapper middleware for Fiber that conditionally executes a handler based on a predicate function. If the predicate returns true, the wrapped handler is skipped and the next handler in the chain is executed.
+
+## Signatures
+
+```go
+func New(handler fiber.Handler, exclude func(fiber.Ctx) bool) fiber.Handler
+```
+
+## Usage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/skip"
+)
+```
+
+### Basic Usage
+
+```go
+import "github.com/gofiber/fiber/v3/middleware/logger"
+
+app.Use(skip.New(logger.New(), func(c fiber.Ctx) bool {
+    return c.Path() == "/health"
+}))
+```
+
+### Skip Multiple Paths
+
+```go
+app.Use(skip.New(logger.New(), func(c fiber.Ctx) bool {
+    path := c.Path()
+    return path == "/health" || path == "/metrics" || path == "/ready"
+}))
+```
+
+### Skip by Method
+
+```go
+app.Use(skip.New(authMiddleware, func(c fiber.Ctx) bool {
+    return c.Method() == "OPTIONS"
+}))
+```
+
+### Skip by Header
+
+```go
+app.Use(skip.New(rateLimiter, func(c fiber.Ctx) bool {
+    return c.Get("X-Skip-Rate-Limit") == "true"
+}))
+```
+
+### Skip by Path Prefix
+
+```go
+app.Use(skip.New(authMiddleware, func(c fiber.Ctx) bool {
+    return strings.HasPrefix(c.Path(), "/public")
+}))
+```
+
+## Parameters
+
+### handler
+
+```go
+handler fiber.Handler
+```
+
+The middleware handler to wrap. This handler will be executed unless the exclude function returns true.
+
+### exclude
+
+```go
+exclude func(fiber.Ctx) bool
+```
+
+A predicate function that determines whether to skip the handler. If it returns true, the handler is skipped and `c.Next()` is called. If nil, the handler is always executed.
+
+## Common Use Cases
+
+### Skip Health Check Endpoints
+
+```go
+import (
+    "github.com/gofiber/fiber/v3/middleware/logger"
+    "github.com/gofiber/fiber/v3/middleware/skip"
+)
+
+app.Use(skip.New(logger.New(), func(c fiber.Ctx) bool {
+    return c.Path() == "/health" || c.Path() == "/ready"
+}))
+
+app.Get("/health", func(c fiber.Ctx) error {
+    return c.SendString("OK")
+})
+```
+
+### Skip Authentication for Public Routes
+
+```go
+app.Use(skip.New(authMiddleware, func(c fiber.Ctx) bool {
+    publicPaths := []string{"/", "/login", "/register", "/forgot-password"}
+    for _, path := range publicPaths {
+        if c.Path() == path {
+            return true
+        }
+    }
+    return false
+}))
+```
+
+### Skip CORS for Same-Origin Requests
+
+```go
+import "github.com/gofiber/fiber/v3/middleware/cors"
+
+app.Use(skip.New(cors.New(), func(c fiber.Ctx) bool {
+    origin := c.Get("Origin")
+    return origin == "" || origin == "https://example.com"
+}))
+```
+
+### Skip Rate Limiting for Authenticated Users
+
+```go
+import "github.com/gofiber/fiber/v3/middleware/limiter"
+
+app.Use(skip.New(limiter.New(), func(c fiber.Ctx) bool {
+    // Skip rate limiting if user is authenticated
+    return c.Locals("authenticated") == true
+}))
+```
+
+### Skip Compression for Small Responses
+
+```go
+import "github.com/gofiber/fiber/v3/middleware/compress"
+
+app.Use(skip.New(compress.New(), func(c fiber.Ctx) bool {
+    // Skip compression for images
+    contentType := c.Get("Content-Type")
+    return strings.HasPrefix(contentType, "image/")
+}))
+```
+
+### Development vs Production
+
+```go
+import "github.com/gofiber/fiber/v3/middleware/cache"
+
+app.Use(skip.New(cache.New(), func(c fiber.Ctx) bool {
+    // Skip caching in development
+    return os.Getenv("ENV") == "development"
+}))
+```
+
+### Skip by IP Address
+
+```go
+app.Use(skip.New(rateLimiter, func(c fiber.Ctx) bool {
+    // Skip rate limiting for internal IPs
+    ip := c.IP()
+    return strings.HasPrefix(ip, "192.168.") || strings.HasPrefix(ip, "10.")
+}))
+```
+
+### Conditional CSRF Protection
+
+```go
+import "github.com/gofiber/fiber/v3/middleware/csrf"
+
+app.Use(skip.New(csrf.New(), func(c fiber.Ctx) bool {
+    // Skip CSRF for API endpoints using token auth
+    return strings.HasPrefix(c.Path(), "/api/") && c.Get("Authorization") != ""
+}))
+```
+
+## Best Practices
+
+### Use Helper Functions
+
+```go
+func isPublicPath(path string) bool {
+    publicPaths := []string{"/", "/login", "/register", "/about", "/contact"}
+    for _, p := range publicPaths {
+        if path == p {
+            return true
+        }
+    }
+    return false
+}
+
+app.Use(skip.New(authMiddleware, func(c fiber.Ctx) bool {
+    return isPublicPath(c.Path())
+}))
+```
+
+### Combine Multiple Conditions
+
+```go
+app.Use(skip.New(middleware, func(c fiber.Ctx) bool {
+    // Skip if health check OR if internal request
+    return c.Path() == "/health" || c.Get("X-Internal") == "true"
+}))
+```
+
+### Use with Path Matching
+
+```go
+import "path/filepath"
+
+app.Use(skip.New(authMiddleware, func(c fiber.Ctx) bool {
+    matched, _ := filepath.Match("/public/*", c.Path())
+    return matched
+}))
+```
+
+### Document Skip Logic
+
+```go
+// Skip logging for health checks and metrics endpoints
+// to reduce log noise in production
+app.Use(skip.New(logger.New(), func(c fiber.Ctx) bool {
+    path := c.Path()
+    return path == "/health" || 
+           path == "/metrics" || 
+           path == "/ready" ||
+           path == "/live"
+}))
+```
+
+## Comparison with Next
+
+Many Fiber middleware have a built-in `Next` configuration option. The Skip middleware provides an alternative approach:
+
+### Using Next (built-in)
+
+```go
+app.Use(logger.New(logger.Config{
+    Next: func(c fiber.Ctx) bool {
+        return c.Path() == "/health"
+    },
+}))
+```
+
+### Using Skip (wrapper)
+
+```go
+app.Use(skip.New(logger.New(), func(c fiber.Ctx) bool {
+    return c.Path() == "/health"
+}))
+```
+
+Both approaches work similarly. Use `Next` when configuring individual middleware, and use `skip.New()` when wrapping middleware that doesn't have a `Next` option or when you want to conditionally apply third-party middleware.
+
+## Notes
+
+- If the exclude function is nil, the handler is always executed
+- The skip middleware is a lightweight wrapper that adds minimal overhead
+- This is useful for conditionally applying middleware without modifying its configuration
+- The predicate function is evaluated on every request, so keep it efficient

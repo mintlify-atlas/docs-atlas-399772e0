@@ -1,0 +1,395 @@
+---
+title: Logger
+description: HTTP request/response logging middleware
+---
+
+Logger middleware for Fiber logs HTTP request and response details. It provides flexible formatting, custom tags, and integration with popular logging libraries.
+
+## Installation
+
+```bash
+go get -u github.com/gofiber/fiber/v3
+go get -u github.com/gofiber/fiber/v3/middleware/logger
+```
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Usage
+
+### Basic Usage
+
+```go
+package main
+
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/logger"
+)
+
+func main() {
+    app := fiber.New()
+
+    // Default logger
+    app.Use(logger.New())
+
+    app.Get("/", func(c fiber.Ctx) error {
+        return c.SendString("Hello, World!")
+    })
+
+    app.Listen(":3000")
+}
+```
+
+### Custom Format
+
+```go
+app.Use(logger.New(logger.Config{
+    Format: "[${ip}]:${port} ${status} - ${method} ${path}\n",
+}))
+```
+
+### Log to File
+
+```go
+accessLog, err := os.OpenFile("./access.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+if err != nil {
+    log.Fatalf("error opening file: %v", err)
+}
+defer accessLog.Close()
+
+app.Use(logger.New(logger.Config{
+    Stream: accessLog,
+}))
+```
+
+### Custom Tags
+
+```go
+import "github.com/gofiber/fiber/v3/middleware/requestid"
+
+app.Use(requestid.New())
+app.Use(logger.New(logger.Config{
+    CustomTags: map[string]logger.LogFunc{
+        "requestid": func(output logger.Buffer, c fiber.Ctx, data *logger.Data, extraParam string) (int, error) {
+            return output.WriteString(requestid.FromContext(c))
+        },
+    },
+    Format: "${pid} ${requestid} ${status} - ${method} ${path}\n",
+}))
+```
+
+### Predefined Formats
+
+```go
+// Common Log Format
+app.Use(logger.New(logger.Config{
+    Format: logger.CommonFormat,
+}))
+
+// Combined Log Format
+app.Use(logger.New(logger.Config{
+    Format: logger.CombinedFormat,
+}))
+
+// JSON Format
+app.Use(logger.New(logger.Config{
+    Format: logger.JSONFormat,
+}))
+
+// Elastic Common Schema (ECS)
+app.Use(logger.New(logger.Config{
+    Format: logger.ECSFormat,
+}))
+```
+
+### Time Zone and Format
+
+```go
+app.Use(logger.New(logger.Config{
+    Format:     "${pid} ${status} - ${method} ${path}\n",
+    TimeFormat: "02-Jan-2006",
+    TimeZone:   "America/New_York",
+}))
+```
+
+### Integration with Zap Logger
+
+```go
+import (
+    "github.com/gofiber/contrib/fiberzap/v2"
+    "github.com/gofiber/fiber/v3/log"
+    "github.com/gofiber/fiber/v3/middleware/logger"
+)
+
+zapLogger := fiberzap.NewLogger(fiberzap.LoggerConfig{
+    ExtraKeys: []string{"request_id"},
+})
+
+app.Use(logger.New(logger.Config{
+    Stream: logger.LoggerToWriter(zapLogger, log.LevelDebug),
+}))
+```
+
+### Disable Colors
+
+```go
+app.Use(logger.New(logger.Config{
+    DisableColors: true,
+}))
+```
+
+### Force Colors
+
+```go
+app.Use(logger.New(logger.Config{
+    ForceColors: true,
+}))
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+  Function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="Skip" type="func(fiber.Ctx) bool" default="nil">
+  Function to determine if logging is skipped or written to Stream.
+</ParamField>
+
+<ParamField path="Done" type="func(fiber.Ctx, []byte)" default="nil">
+  Callback function executed after the log string is written to Stream.
+</ParamField>
+
+<ParamField path="CustomTags" type="map[string]LogFunc" default="map[string]LogFunc">
+  Map of custom tag names to functions that generate their values.
+</ParamField>
+
+<ParamField path="Format" type="string" default="DefaultFormat">
+  Logging format string. See [Tags](#tags) for available placeholders.
+</ParamField>
+
+<ParamField path="TimeFormat" type="string">
+  Time format for the `${time}` tag. See Go's time.Format documentation.
+</ParamField>
+
+<ParamField path="TimeZone" type="string">
+  Time zone for timestamps (e.g., "UTC", "America/New_York", "Asia/Shanghai").
+</ParamField>
+
+<ParamField path="TimeInterval" type="time.Duration" default="500 * time.Millisecond">
+  Delay before the timestamp is updated.
+</ParamField>
+
+<ParamField path="Stream" type="io.Writer" default="os.Stdout">
+  Output destination for logs.
+</ParamField>
+
+<ParamField path="LoggerFunc" type="func(c fiber.Ctx, data *Data, cfg *Config) error" default="defaultLoggerInstance">
+  Custom logger function for integration with logging libraries.
+</ParamField>
+
+<ParamField path="DisableColors" type="bool" default="false">
+  Disables colorized output.
+</ParamField>
+
+<ParamField path="ForceColors" type="bool" default="false">
+  Forces colorized output even when not outputting to a terminal.
+</ParamField>
+
+## Default Configuration
+
+```go
+var ConfigDefault = Config{
+    Next:              nil,
+    Skip:              nil,
+    Done:              nil,
+    Format:            DefaultFormat,
+    TimeFormat:        "15:04:05",
+    TimeZone:          "Local",
+    TimeInterval:      500 * time.Millisecond,
+    Stream:            os.Stdout,
+    BeforeHandlerFunc: beforeHandlerFunc,
+    LoggerFunc:        defaultLoggerInstance,
+    enableColors:      true,
+}
+```
+
+## Predefined Formats
+
+| Format | Description |
+|--------|-------------|
+| `DefaultFormat` | `[${time}] ${ip} ${status} - ${latency} ${method} ${path} ${error}\n` |
+| `CommonFormat` | `${ip} - - [${time}] "${method} ${url} ${protocol}" ${status} ${bytesSent}\n` |
+| `CombinedFormat` | Common format + `"${referer}" "${ua}"\n` |
+| `JSONFormat` | `{time: ${time}, ip: ${ip}, method: ${method}, url: ${url}, status: ${status}, bytesSent: ${bytesSent}}\n` |
+| `ECSFormat` | Elastic Common Schema format |
+
+## Tags
+
+| Tag | Description |
+|-----|-------------|
+| `${pid}` | Process ID |
+| `${time}` | Timestamp |
+| `${referer}` | Referer header |
+| `${protocol}` | HTTP protocol |
+| `${port}` | Port |
+| `${ip}` | Client IP |
+| `${ips}` | IP addresses from X-Forwarded-For |
+| `${host}` | Host header |
+| `${method}` | HTTP method |
+| `${path}` | Request path |
+| `${url}` | Full URL |
+| `${ua}` | User-Agent |
+| `${latency}` | Request latency |
+| `${status}` | Response status code |
+| `${resBody}` | Response body |
+| `${reqHeaders}` | Request headers |
+| `${queryParams}` | Query parameters |
+| `${body}` | Request body |
+| `${bytesSent}` | Bytes sent |
+| `${bytesReceived}` | Bytes received |
+| `${route}` | Matched route |
+| `${error}` | Error if any |
+| `${reqHeader:name}` | Specific request header |
+| `${respHeader:name}` | Specific response header |
+| `${query:name}` | Specific query parameter |
+| `${form:name}` | Specific form field |
+| `${cookie:name}` | Specific cookie |
+| `${locals:name}` | Specific local variable |
+
+### Color Tags
+
+| Tag | Color |
+|-----|-------|
+| `${black}`, `${red}`, `${green}`, `${yellow}` | Colors |
+| `${blue}`, `${magenta}`, `${cyan}`, `${white}` | Colors |
+| `${reset}` | Reset color |
+
+## Best Practices
+
+### Register Early
+
+```go
+// Register logger BEFORE routes to log all requests
+app.Use(logger.New())
+
+// Now register routes
+app.Get("/", handler)
+```
+
+### Skip Health Checks
+
+```go
+app.Use(logger.New(logger.Config{
+    Next: func(c fiber.Ctx) bool {
+        // Don't log health check endpoints
+        return c.Path() == "/health" || c.Path() == "/metrics"
+    },
+}))
+```
+
+### Conditional Logging
+
+```go
+app.Use(logger.New(logger.Config{
+    Skip: func(c fiber.Ctx) bool {
+        // Only log errors
+        return c.Response().StatusCode() < 400
+    },
+}))
+```
+
+### Post-Log Actions
+
+```go
+app.Use(logger.New(logger.Config{
+    Done: func(c fiber.Ctx, logString []byte) {
+        // Send errors to external service
+        if c.Response().StatusCode() >= 500 {
+            sendToSlack(logString)
+        }
+    },
+}))
+```
+
+## Common Patterns
+
+### Development vs Production
+
+```go
+config := logger.Config{}
+
+if os.Getenv("ENV") == "production" {
+    config.Format = logger.JSONFormat
+    config.DisableColors = true
+} else {
+    config.Format = logger.DefaultFormat
+}
+
+app.Use(logger.New(config))
+```
+
+### Separate Access and Error Logs
+
+```go
+accessLog, _ := os.OpenFile("./access.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+errorLog, _ := os.OpenFile("./error.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+
+app.Use(logger.New(logger.Config{
+    Stream: accessLog,
+    Skip: func(c fiber.Ctx) bool {
+        return c.Response().StatusCode() >= 400
+    },
+}))
+
+app.Use(logger.New(logger.Config{
+    Stream: errorLog,
+    Skip: func(c fiber.Ctx) bool {
+        return c.Response().StatusCode() < 400
+    },
+}))
+```
+
+### Log Request Body
+
+```go
+app.Use(logger.New(logger.Config{
+    Format: "${method} ${path} - ${body}\n",
+}))
+```
+
+### Log Specific Headers
+
+```go
+app.Use(logger.New(logger.Config{
+    Format: "${reqHeader:X-Request-ID} ${method} ${path} ${status}\n",
+}))
+```
+
+### Custom Tag Example
+
+```go
+app.Use(logger.New(logger.Config{
+    CustomTags: map[string]logger.LogFunc{
+        "user": func(output logger.Buffer, c fiber.Ctx, data *logger.Data, extraParam string) (int, error) {
+            user := c.Locals("user")
+            if user != nil {
+                return output.WriteString(user.(string))
+            }
+            return output.WriteString("anonymous")
+        },
+    },
+    Format: "[${user}] ${method} ${path} ${status}\n",
+}))
+```
+
+## Notes
+
+- Registration order matters: only routes added after the logger are logged
+- Writing to `os.File` is goroutine-safe
+- Custom streams may require locking for concurrent writes
+- The `TimeInterval` reduces timestamp update overhead

@@ -1,0 +1,491 @@
+---
+title: Hooks API
+description: Complete reference for Fiber's lifecycle hooks system.
+---
+
+Fiber provides a powerful hooks system that allows you to run custom code at specific points in the application lifecycle.
+
+## Hook Types
+
+All hook handler type definitions:
+
+```go
+type OnRouteHandler = func(Route) error
+type OnNameHandler = OnRouteHandler
+type OnGroupHandler = func(Group) error
+type OnGroupNameHandler = OnGroupHandler
+type OnListenHandler = func(ListenData) error
+type OnPreStartupMessageHandler = func(*PreStartupMessageData) error
+type OnPostStartupMessageHandler = func(*PostStartupMessageData) error
+type OnPreShutdownHandler = func() error
+type OnPostShutdownHandler = func(error) error
+type OnForkHandler = func(int) error
+type OnMountHandler = func(*App) error
+```
+
+## Routing Hooks
+
+### OnRoute
+
+Executed after each route is registered.
+
+```go
+func (h *Hooks) OnRoute(handler ...OnRouteHandler)
+```
+
+<ParamField path="handler" type="...OnRouteHandler">
+  One or more handlers that receive the registered route.
+</ParamField>
+
+```go Example
+app.Hooks().OnRoute(func(r fiber.Route) error {
+    fmt.Printf("Route registered: %s %s\n", r.Method, r.Path)
+    return nil
+})
+```
+
+### OnName
+
+Executed when a route is named.
+
+```go
+func (h *Hooks) OnName(handler ...OnNameHandler)
+```
+
+<ParamField path="handler" type="...OnNameHandler">
+  One or more handlers that receive the named route.
+</ParamField>
+
+```go Example
+app.Hooks().OnName(func(r fiber.Route) error {
+    fmt.Printf("Route named: %s -> %s %s\n", r.Name, r.Method, r.Path)
+    return nil
+})
+
+app.Get("/users/:id", handler).Name("user.show")
+```
+
+<Note>
+OnName only triggers for routes that are explicitly named using `.Name()`.
+</Note>
+
+### OnGroup
+
+Executed after each route group is created.
+
+```go
+func (h *Hooks) OnGroup(handler ...OnGroupHandler)
+```
+
+<ParamField path="handler" type="...OnGroupHandler">
+  One or more handlers that receive the created group.
+</ParamField>
+
+```go Example
+app.Hooks().OnGroup(func(g fiber.Group) error {
+    fmt.Printf("Group created: %s\n", g.Prefix)
+    return nil
+})
+
+api := app.Group("/api")
+```
+
+### OnGroupName
+
+Executed when a group is named.
+
+```go
+func (h *Hooks) OnGroupName(handler ...OnGroupNameHandler)
+```
+
+<ParamField path="handler" type="...OnGroupNameHandler">
+  One or more handlers that receive the named group.
+</ParamField>
+
+<Note>
+OnGroupName only triggers for groups that are explicitly named.
+</Note>
+
+## Server Lifecycle Hooks
+
+### OnListen
+
+Executed when the server starts listening.
+
+```go
+func (h *Hooks) OnListen(handler ...OnListenHandler)
+```
+
+<ParamField path="handler" type="...OnListenHandler">
+  One or more handlers that receive ListenData.
+</ParamField>
+
+```go Example
+app.Hooks().OnListen(func(data fiber.ListenData) error {
+    scheme := "http"
+    if data.TLS {
+        scheme = "https"
+    }
+    fmt.Printf("Server listening on %s://%s:%s\n", scheme, data.Host, data.Port)
+    return nil
+})
+```
+
+#### ListenData
+
+Contains information about the listening server:
+
+<ResponseField name="Host" type="string">
+  The hostname or IP address the server is bound to.
+</ResponseField>
+
+<ResponseField name="Port" type="string">
+  The port number the server is listening on.
+</ResponseField>
+
+<ResponseField name="TLS" type="bool">
+  Whether TLS is enabled.
+</ResponseField>
+
+<ResponseField name="Version" type="string">
+  The Fiber version.
+</ResponseField>
+
+<ResponseField name="AppName" type="string">
+  The application name from Config.
+</ResponseField>
+
+<ResponseField name="HandlerCount" type="int">
+  Total number of registered handlers.
+</ResponseField>
+
+<ResponseField name="ProcessCount" type="int">
+  Number of processes (relevant in prefork mode).
+</ResponseField>
+
+<ResponseField name="PID" type="int">
+  Current process ID.
+</ResponseField>
+
+<ResponseField name="Prefork" type="bool">
+  Whether prefork mode is enabled.
+</ResponseField>
+
+<ResponseField name="ChildPIDs" type="[]int">
+  Child process IDs when using prefork.
+</ResponseField>
+
+<ResponseField name="ColorScheme" type="Colors">
+  Active color scheme for startup message.
+</ResponseField>
+
+### OnPreStartupMessage
+
+Executed before printing the startup banner.
+
+```go
+func (h *Hooks) OnPreStartupMessage(handler ...OnPreStartupMessageHandler)
+```
+
+<ParamField path="handler" type="...OnPreStartupMessageHandler">
+  One or more handlers that receive PreStartupMessageData.
+</ParamField>
+
+```go Example
+app.Hooks().OnPreStartupMessage(func(sm *fiber.PreStartupMessageData) error {
+    sm.BannerHeader = "MY APP " + sm.Version
+    sm.AddInfo("environment", "Environment", os.Getenv("ENV"))
+    sm.AddWarning("debug", "Debug Mode", "Enabled", 10)
+    return nil
+})
+```
+
+#### PreStartupMessageData Methods
+
+##### AddInfo
+
+Add an informational entry to the startup banner.
+
+```go
+func (sm *PreStartupMessageData) AddInfo(key, title, value string, priority ...int)
+```
+
+<ParamField path="key" type="string">
+  Unique identifier for this entry.
+</ParamField>
+
+<ParamField path="title" type="string">
+  Display label for the entry.
+</ParamField>
+
+<ParamField path="value" type="string">
+  The value to display.
+</ParamField>
+
+<ParamField path="priority" type="int" optional>
+  Display priority (higher numbers appear first).
+</ParamField>
+
+##### AddWarning
+
+Add a warning entry to the startup banner.
+
+```go
+func (sm *PreStartupMessageData) AddWarning(key, title, value string, priority ...int)
+```
+
+<ParamField path="key" type="string">
+  Unique identifier for this entry.
+</ParamField>
+
+<ParamField path="title" type="string">
+  Display label for the entry.
+</ParamField>
+
+<ParamField path="value" type="string">
+  The value to display.
+</ParamField>
+
+<ParamField path="priority" type="int" optional>
+  Display priority (higher numbers appear first).
+</ParamField>
+
+##### AddError
+
+Add an error entry to the startup banner.
+
+```go
+func (sm *PreStartupMessageData) AddError(key, title, value string, priority ...int)
+```
+
+<ParamField path="key" type="string">
+  Unique identifier for this entry.
+</ParamField>
+
+<ParamField path="title" type="string">
+  Display label for the entry.
+</ParamField>
+
+<ParamField path="value" type="string">
+  The value to display.
+</ParamField>
+
+<ParamField path="priority" type="int" optional>
+  Display priority (higher numbers appear first).
+</ParamField>
+
+##### EntryKeys
+
+Get all entry keys currently in the startup message.
+
+```go
+func (sm *PreStartupMessageData) EntryKeys() []string
+```
+
+<ResponseField name="[]string" type="[]string">
+  Returns all entry keys.
+</ResponseField>
+
+##### DeleteEntry
+
+Remove an entry from the startup message.
+
+```go
+func (sm *PreStartupMessageData) DeleteEntry(key string)
+```
+
+<ParamField path="key" type="string">
+  The key of the entry to remove.
+</ParamField>
+
+##### ResetEntries
+
+Remove all entries from the startup message.
+
+```go
+func (sm *PreStartupMessageData) ResetEntries()
+```
+
+#### PreStartupMessageData Fields
+
+<ResponseField name="BannerHeader" type="string">
+  Custom ASCII art or header text. Leave empty for default Fiber banner.
+</ResponseField>
+
+<ResponseField name="PreventDefault" type="bool">
+  Set to true to suppress the default startup message entirely.
+</ResponseField>
+
+### OnPostStartupMessage
+
+Executed after the startup banner is printed (or skipped).
+
+```go
+func (h *Hooks) OnPostStartupMessage(handler ...OnPostStartupMessageHandler)
+```
+
+<ParamField path="handler" type="...OnPostStartupMessageHandler">
+  One or more handlers that receive PostStartupMessageData.
+</ParamField>
+
+```go Example
+app.Hooks().OnPostStartupMessage(func(sm *fiber.PostStartupMessageData) error {
+    if !sm.Disabled && !sm.IsChild {
+        fmt.Println("Server started successfully!")
+    }
+    return nil
+})
+```
+
+#### PostStartupMessageData Fields
+
+<ResponseField name="Disabled" type="bool">
+  True if startup message was disabled via DisableStartupMessage config.
+</ResponseField>
+
+<ResponseField name="IsChild" type="bool">
+  True if this is a child process (prefork mode).
+</ResponseField>
+
+<ResponseField name="Prevented" type="bool">
+  True if PreventDefault was set in OnPreStartupMessage.
+</ResponseField>
+
+### OnPreShutdown
+
+Executed before the server begins shutdown.
+
+```go
+func (h *Hooks) OnPreShutdown(handler ...OnPreShutdownHandler)
+```
+
+<ParamField path="handler" type="...OnPreShutdownHandler">
+  One or more handlers executed before shutdown.
+</ParamField>
+
+```go Example
+app.Hooks().OnPreShutdown(func() error {
+    fmt.Println("Server shutting down...")
+    // Close database connections, etc.
+    return nil
+})
+```
+
+### OnPostShutdown
+
+Executed after the server has shut down.
+
+```go
+func (h *Hooks) OnPostShutdown(handler ...OnPostShutdownHandler)
+```
+
+<ParamField path="handler" type="...OnPostShutdownHandler">
+  One or more handlers that receive the shutdown error (if any).
+</ParamField>
+
+```go Example
+app.Hooks().OnPostShutdown(func(err error) error {
+    if err != nil {
+        fmt.Printf("Shutdown error: %v\n", err)
+    } else {
+        fmt.Println("Server shut down cleanly")
+    }
+    return nil
+})
+```
+
+## Process Hooks
+
+### OnFork
+
+Executed in child processes when using prefork mode.
+
+```go
+func (h *Hooks) OnFork(handler ...OnForkHandler)
+```
+
+<ParamField path="handler" type="...OnForkHandler">
+  One or more handlers that receive the worker ID.
+</ParamField>
+
+```go Example
+app.Hooks().OnFork(func(workerID int) error {
+    fmt.Printf("Worker %d started\n", workerID)
+    return nil
+})
+```
+
+### OnMount
+
+Executed when a sub-application is mounted.
+
+```go
+func (h *Hooks) OnMount(handler ...OnMountHandler)
+```
+
+<ParamField path="handler" type="...OnMountHandler">
+  One or more handlers that receive the parent App.
+</ParamField>
+
+```go Example
+subApp := fiber.New()
+
+subApp.Hooks().OnMount(func(parent *fiber.App) error {
+    fmt.Printf("Mounted at: %s\n", parent.MountPath())
+    return nil
+})
+
+app.Use("/api", subApp)
+```
+
+<Warning>
+OnName, OnRoute, OnGroup, and OnGroupName hooks are mount-aware. When a sub-app with these hooks is mounted, route and group paths include the mount prefix.
+</Warning>
+
+## Example: Complete Hook Setup
+
+```go Example
+app := fiber.New()
+
+// Route registration hooks
+app.Hooks().OnRoute(func(r fiber.Route) error {
+    fmt.Printf("[Route] %s %s\n", r.Method, r.Path)
+    return nil
+})
+
+app.Hooks().OnName(func(r fiber.Route) error {
+    fmt.Printf("[Named] %s -> %s\n", r.Name, r.Path)
+    return nil
+})
+
+// Startup hooks
+app.Hooks().OnPreStartupMessage(func(sm *fiber.PreStartupMessageData) error {
+    sm.AddInfo("env", "Environment", os.Getenv("ENV"))
+    return nil
+})
+
+app.Hooks().OnListen(func(data fiber.ListenData) error {
+    fmt.Printf("Listening on %s:%s\n", data.Host, data.Port)
+    return nil
+})
+
+// Shutdown hooks
+app.Hooks().OnPreShutdown(func() error {
+    fmt.Println("Cleaning up resources...")
+    return nil
+})
+
+app.Hooks().OnPostShutdown(func(err error) error {
+    fmt.Println("Shutdown complete")
+    return nil
+})
+
+// Mount hooks
+subApp := fiber.New()
+subApp.Hooks().OnMount(func(parent *fiber.App) error {
+    fmt.Printf("Sub-app mounted at %s\n", parent.MountPath())
+    return nil
+})
+
+app.Use("/v1", subApp)
+```

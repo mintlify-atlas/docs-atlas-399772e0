@@ -1,0 +1,366 @@
+---
+title: Session
+description: Session management middleware for Fiber
+---
+
+Session middleware for Fiber provides session management with support for multiple storage backends, configurable expiration, and secure cookie handling.
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Usage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/session"
+)
+```
+
+### Basic Usage
+
+```go
+store := session.New()
+
+app.Get("/", func(c fiber.Ctx) error {
+    sess, err := store.Get(c)
+    if err != nil {
+        return err
+    }
+    
+    // Get value
+    name := sess.Get("name")
+    
+    // Set value
+    sess.Set("name", "John")
+    
+    // Save session
+    if err := sess.Save(); err != nil {
+        return err
+    }
+    
+    return c.SendString(fmt.Sprintf("Hello, %v", name))
+})
+```
+
+### Custom Storage
+
+```go
+import "github.com/gofiber/storage/redis/v3"
+
+storage := redis.New(redis.Config{
+    Host: "127.0.0.1",
+    Port: 6379,
+})
+
+store := session.New(session.Config{
+    Storage: storage,
+})
+```
+
+### Custom Expiration
+
+```go
+store := session.New(session.Config{
+    IdleTimeout:     30 * time.Minute,
+    AbsoluteTimeout: 24 * time.Hour,
+})
+```
+
+### Secure Cookies
+
+```go
+store := session.New(session.Config{
+    CookieSecure:      true,
+    CookieHTTPOnly:    true,
+    CookieSameSite:    "Strict",
+})
+```
+
+## Configuration
+
+<ParamField path="Storage" type="fiber.Storage" default="memory.New()">
+Storage interface for storing session data. Can be memory, Redis, MySQL, PostgreSQL, etc.
+</ParamField>
+
+<ParamField path="Store" type="*Store" required>
+Defines the session store.
+</ParamField>
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+Defines a function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="ErrorHandler" type="func(fiber.Ctx, error)" default="nil">
+Defines a function to handle errors that occur during session operations.
+</ParamField>
+
+<ParamField path="KeyGenerator" type="func() string" default="utils.SecureToken">
+Generates the session key. The default uses a cryptographically secure random token generator.
+</ParamField>
+
+<ParamField path="CookieDomain" type="string" default={``}>
+Defines the domain of the session cookie.
+</ParamField>
+
+<ParamField path="CookiePath" type="string" default={``}>
+Defines the path of the session cookie.
+</ParamField>
+
+<ParamField path="CookieSameSite" type="string" default={`Lax`}>
+Specifies the SameSite attribute of the cookie. Options: `"Lax"`, `"Strict"`, `"None"`.
+</ParamField>
+
+<ParamField path="Extractor" type="extractors.Extractor" default='extractors.FromCookie("session_id")'>
+Used to extract the session ID from the request. See: [Extractors](https://docs.gofiber.io/guide/extractors)
+</ParamField>
+
+<ParamField path="IdleTimeout" type="time.Duration" default="30 * time.Minute">
+Defines the maximum duration of inactivity before the session expires. The idle timeout is updated on each `Save()` call.
+</ParamField>
+
+<ParamField path="AbsoluteTimeout" type="time.Duration" default="0">
+Defines the maximum duration of the session before it expires. If set to 0, the session will not have an absolute timeout and will expire after the idle timeout.
+</ParamField>
+
+<ParamField path="CookieSecure" type="bool" default="false">
+Specifies if the session cookie should be secure (HTTPS only).
+</ParamField>
+
+<ParamField path="CookieHTTPOnly" type="bool" default="false">
+Specifies if the session cookie should be HTTP-only (not accessible via JavaScript).
+</ParamField>
+
+<ParamField path="CookieSessionOnly" type="bool" default="false">
+Determines if the cookie should expire when the browser session ends. If true, the cookie will be deleted when the browser is closed. Note: This will not delete the session data from the store.
+</ParamField>
+
+## Default Config
+
+```go
+var ConfigDefault = Config{
+    IdleTimeout:    30 * time.Minute,
+    KeyGenerator:   utils.SecureToken,
+    Extractor:      extractors.FromCookie("session_id"),
+    CookieSameSite: "Lax",
+}
+```
+
+## Common Use Cases
+
+### User Authentication
+
+```go
+store := session.New()
+
+app.Post("/login", func(c fiber.Ctx) error {
+    sess, _ := store.Get(c)
+    
+    // Validate credentials...
+    
+    sess.Set("user_id", user.ID)
+    sess.Set("authenticated", true)
+    sess.Save()
+    
+    return c.Redirect("/dashboard")
+})
+
+app.Get("/dashboard", func(c fiber.Ctx) error {
+    sess, _ := store.Get(c)
+    
+    if sess.Get("authenticated") != true {
+        return c.Redirect("/login")
+    }
+    
+    return c.SendString("Welcome to dashboard")
+})
+
+app.Post("/logout", func(c fiber.Ctx) error {
+    sess, _ := store.Get(c)
+    if err := sess.Destroy(); err != nil {
+        return err
+    }
+    return c.Redirect("/login")
+})
+```
+
+### Shopping Cart
+
+```go
+store := session.New(session.Config{
+    IdleTimeout: 2 * time.Hour,
+})
+
+app.Post("/cart/add", func(c fiber.Ctx) error {
+    sess, _ := store.Get(c)
+    
+    cart := sess.Get("cart")
+    if cart == nil {
+        cart = []string{}
+    }
+    
+    productID := c.FormValue("product_id")
+    cart = append(cart.([]string), productID)
+    
+    sess.Set("cart", cart)
+    sess.Save()
+    
+    return c.JSON(fiber.Map{"items": len(cart.([]string))})
+})
+```
+
+### Flash Messages
+
+```go
+store := session.New()
+
+app.Post("/contact", func(c fiber.Ctx) error {
+    sess, _ := store.Get(c)
+    
+    // Process form...
+    
+    sess.Set("flash_message", "Message sent successfully!")
+    sess.Save()
+    
+    return c.Redirect("/contact")
+})
+
+app.Get("/contact", func(c fiber.Ctx) error {
+    sess, _ := store.Get(c)
+    
+    message := sess.Get("flash_message")
+    if message != nil {
+        sess.Delete("flash_message")
+        sess.Save()
+    }
+    
+    return c.Render("contact", fiber.Map{
+        "flash": message,
+    })
+})
+```
+
+### Session with Redis
+
+```go
+import "github.com/gofiber/storage/redis/v3"
+
+storage := redis.New(redis.Config{
+    Host:     "127.0.0.1",
+    Port:     6379,
+    Password: "",
+    Database: 0,
+})
+
+store := session.New(session.Config{
+    Storage:         storage,
+    IdleTimeout:     30 * time.Minute,
+    AbsoluteTimeout: 24 * time.Hour,
+})
+```
+
+### Multi-Domain Sessions
+
+```go
+store := session.New(session.Config{
+    CookieDomain:   ".example.com",
+    CookieSecure:   true,
+    CookieHTTPOnly: true,
+    CookieSameSite: "Lax",
+})
+
+// Session works across app.example.com, api.example.com, etc.
+```
+
+## Best Practices
+
+### Always Check Errors
+
+```go
+app.Get("/", func(c fiber.Ctx) error {
+    sess, err := store.Get(c)
+    if err != nil {
+        return c.Status(500).SendString("Session error")
+    }
+    
+    // Use session...
+    
+    if err := sess.Save(); err != nil {
+        return c.Status(500).SendString("Failed to save session")
+    }
+    
+    return c.SendString("OK")
+})
+```
+
+### Use HTTPS in Production
+
+```go
+// Production configuration
+store := session.New(session.Config{
+    CookieSecure:   true,  // Require HTTPS
+    CookieHTTPOnly: true,  // Prevent XSS
+    CookieSameSite: "Strict", // CSRF protection
+})
+```
+
+### Set Appropriate Timeouts
+
+```go
+store := session.New(session.Config{
+    IdleTimeout:     30 * time.Minute,  // Session expires after 30min inactivity
+    AbsoluteTimeout: 12 * time.Hour,    // Session expires after 12 hours regardless
+})
+```
+
+### Use Persistent Storage for Production
+
+```go
+// Don't use in-memory storage in production
+// Use Redis, PostgreSQL, MySQL, etc.
+import "github.com/gofiber/storage/postgres/v3"
+
+storage := postgres.New(postgres.Config{
+    Host:     "localhost",
+    Port:     5432,
+    Database: "sessions",
+    Table:    "fiber_sessions",
+})
+
+store := session.New(session.Config{
+    Storage: storage,
+})
+```
+
+### Handle Session Regeneration
+
+```go
+// Regenerate session ID on authentication to prevent session fixation
+app.Post("/login", func(c fiber.Ctx) error {
+    sess, _ := store.Get(c)
+    
+    // Validate credentials...
+    
+    // Regenerate session
+    if err := sess.Regenerate(); err != nil {
+        return err
+    }
+    
+    sess.Set("user_id", user.ID)
+    sess.Save()
+    
+    return c.Redirect("/dashboard")
+})
+```
+
+## Notes
+
+- Sessions are stored server-side; only the session ID is sent to the client
+- The default storage is in-memory, which is not suitable for production
+- Always call `sess.Save()` after modifying session data
+- Use `sess.Destroy()` to delete a session
+- The idle timeout is updated each time `Save()` is called
+- If using middleware handler, `Save()` is called automatically at the end of the request

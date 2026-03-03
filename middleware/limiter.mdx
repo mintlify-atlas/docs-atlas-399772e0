@@ -1,0 +1,391 @@
+---
+title: Limiter
+description: Rate limiting middleware to throttle requests
+---
+
+Limiter middleware for Fiber throttles repeated requests to public APIs, endpoints, or services. It's useful for preventing abuse, protecting against DDoS attacks, and managing API quotas.
+
+## Installation
+
+```bash
+go get -u github.com/gofiber/fiber/v3
+go get -u github.com/gofiber/fiber/v3/middleware/limiter
+```
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Usage
+
+### Basic Usage
+
+```go
+package main
+
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/limiter"
+    "time"
+)
+
+func main() {
+    app := fiber.New()
+
+    // 5 requests per minute
+    app.Use(limiter.New())
+
+    app.Get("/", func(c fiber.Ctx) error {
+        return c.SendString("Hello, World!")
+    })
+
+    app.Listen(":3000")
+}
+```
+
+### Custom Configuration
+
+```go
+app.Use(limiter.New(limiter.Config{
+    Max:        20,
+    Expiration: 30 * time.Second,
+    KeyGenerator: func(c fiber.Ctx) string {
+        return c.Get("x-forwarded-for")
+    },
+    LimitReached: func(c fiber.Ctx) error {
+        return c.Status(fiber.StatusTooManyRequests).SendFile("./toofast.html")
+    },
+}))
+```
+
+### Skip Localhost
+
+```go
+app.Use(limiter.New(limiter.Config{
+    Next: func(c fiber.Ctx) bool {
+        return c.IP() == "127.0.0.1"
+    },
+}))
+```
+
+### Sliding Window Algorithm
+
+```go
+app.Use(limiter.New(limiter.Config{
+    Max:               20,
+    Expiration:        30 * time.Second,
+    LimiterMiddleware: limiter.SlidingWindow{},
+}))
+```
+
+### Dynamic Limits
+
+```go
+app.Use(limiter.New(limiter.Config{
+    MaxFunc: func(c fiber.Ctx) int {
+        // Premium users get higher limits
+        if isPremiumUser(c) {
+            return 100
+        }
+        return 20
+    },
+    Expiration: 1 * time.Minute,
+}))
+```
+
+### Dynamic Expiration
+
+```go
+app.Use(limiter.New(limiter.Config{
+    Max: 20,
+    ExpirationFunc: func(c fiber.Ctx) time.Duration {
+        // Longer window for sensitive endpoints
+        if c.Path() == "/login" {
+            return 60 * time.Second
+        }
+        return 30 * time.Second
+    },
+}))
+```
+
+### Custom Storage (Redis)
+
+```go
+import "github.com/gofiber/storage/redis/v3"
+
+store := redis.New(redis.Config{
+    Host:     "127.0.0.1",
+    Port:     6379,
+    Database: 0,
+})
+
+app.Use(limiter.New(limiter.Config{
+    Storage: store,
+}))
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+  Function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="Max" type="int" default="5">
+  Maximum number of requests allowed within the Expiration window.
+</ParamField>
+
+<ParamField path="MaxFunc" type="func(fiber.Ctx) int" default="Returns cfg.Max">
+  Function to dynamically calculate the maximum requests per window.
+</ParamField>
+
+<ParamField path="KeyGenerator" type="func(fiber.Ctx) string" default="c.IP()">
+  Function to generate custom rate limit keys. Defaults to client IP address.
+</ParamField>
+
+<ParamField path="Expiration" type="time.Duration" default="1 * time.Minute">
+  Time window for counting requests.
+</ParamField>
+
+<ParamField path="ExpirationFunc" type="func(fiber.Ctx) time.Duration" default="Returns cfg.Expiration">
+  Function to dynamically calculate the expiration window.
+</ParamField>
+
+<ParamField path="LimitReached" type="fiber.Handler" default="Returns 429 status">
+  Handler called when a request exceeds the limit.
+</ParamField>
+
+<ParamField path="SkipFailedRequests" type="bool" default="false">
+  When true, requests with status code ≥ 400 are not counted.
+</ParamField>
+
+<ParamField path="SkipSuccessfulRequests" type="bool" default="false">
+  When true, requests with status code < 400 are not counted.
+</ParamField>
+
+<ParamField path="DisableHeaders" type="bool" default="false">
+  When true, rate limit headers (X-RateLimit-*, Retry-After) are omitted.
+</ParamField>
+
+<ParamField path="DisableValueRedaction" type="bool" default="false">
+  Disables redaction of limiter keys in logs and error messages.
+</ParamField>
+
+<ParamField path="Storage" type="fiber.Storage" default="In-memory storage">
+  Storage backend for persisting rate limit data.
+</ParamField>
+
+<ParamField path="LimiterMiddleware" type="limiter.Handler" default="FixedWindow{}">
+  Algorithm implementation (FixedWindow or SlidingWindow).
+</ParamField>
+
+## Default Configuration
+
+```go
+var ConfigDefault = Config{
+    Max:        5,
+    Expiration: 1 * time.Minute,
+    MaxFunc: func(_ fiber.Ctx) int {
+        return 5
+    },
+    KeyGenerator: func(c fiber.Ctx) string {
+        return c.IP()
+    },
+    LimitReached: func(c fiber.Ctx) error {
+        return c.SendStatus(fiber.StatusTooManyRequests)
+    },
+    SkipFailedRequests:     false,
+    SkipSuccessfulRequests: false,
+    DisableHeaders:         false,
+    DisableValueRedaction:  false,
+    LimiterMiddleware:      FixedWindow{},
+}
+```
+
+## Rate Limit Headers
+
+When `DisableHeaders` is false, the middleware sets these headers:
+
+- `X-RateLimit-Limit`: Maximum requests allowed
+- `X-RateLimit-Remaining`: Requests remaining in current window
+- `X-RateLimit-Reset`: Unix timestamp when the limit resets
+- `Retry-After`: Seconds until the limit resets (only when limit exceeded)
+
+## Best Practices
+
+### Use Redis for Distributed Systems
+
+```go
+import "github.com/gofiber/storage/redis/v3"
+
+store := redis.New(redis.Config{
+    Host:      "127.0.0.1",
+    Port:      6379,
+    Database:  0,
+    Reset:     false,
+})
+
+app.Use(limiter.New(limiter.Config{
+    Storage:    store,
+    Max:        100,
+    Expiration: 1 * time.Minute,
+}))
+```
+
+### Different Limits for Different Endpoints
+
+```go
+// Strict limit for login
+app.Post("/login", limiter.New(limiter.Config{
+    Max:        5,
+    Expiration: 15 * time.Minute,
+}), handleLogin)
+
+// Generous limit for API
+app.Use("/api", limiter.New(limiter.Config{
+    Max:        1000,
+    Expiration: 1 * time.Hour,
+}))
+```
+
+### Rate Limit by User ID
+
+```go
+app.Use(limiter.New(limiter.Config{
+    KeyGenerator: func(c fiber.Ctx) string {
+        // Use user ID if authenticated, otherwise IP
+        if userID := c.Locals("user_id"); userID != nil {
+            return fmt.Sprintf("user:%v", userID)
+        }
+        return c.IP()
+    },
+}))
+```
+
+## Common Patterns
+
+### Skip Rate Limiting for Failed Requests
+
+```go
+app.Use(limiter.New(limiter.Config{
+    SkipFailedRequests: true, // Don't count 4xx/5xx responses
+    Max:                100,
+    Expiration:         1 * time.Minute,
+}))
+```
+
+### Custom Error Response
+
+```go
+app.Use(limiter.New(limiter.Config{
+    LimitReached: func(c fiber.Ctx) error {
+        return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+            "error":      "Rate limit exceeded",
+            "retry_after": 60,
+        })
+    },
+}))
+```
+
+### Tiered Rate Limiting
+
+```go
+func getUserTier(c fiber.Ctx) string {
+    // Determine user tier from context
+    return c.Locals("tier").(string)
+}
+
+app.Use(limiter.New(limiter.Config{
+    MaxFunc: func(c fiber.Ctx) int {
+        switch getUserTier(c) {
+        case "premium":
+            return 1000
+        case "standard":
+            return 100
+        default:
+            return 20
+        }
+    },
+    KeyGenerator: func(c fiber.Ctx) string {
+        userID := c.Locals("user_id")
+        return fmt.Sprintf("user:%v", userID)
+    },
+}))
+```
+
+### Sliding Window Example
+
+```go
+// Smoother rate limiting with sliding window
+app.Use(limiter.New(limiter.Config{
+    Max:               20,
+    Expiration:        30 * time.Second,
+    LimiterMiddleware: limiter.SlidingWindow{},
+}))
+```
+
+The sliding window algorithm calculates the rate as:
+
+```
+weightOfPreviousWindow = previousWindowRequests * (elapsedInCurrentWindow / Expiration)
+rate = weightOfPreviousWindow + currentWindowRequests
+```
+
+### X-Forwarded-For Support
+
+```go
+app.Use(limiter.New(limiter.Config{
+    KeyGenerator: func(c fiber.Ctx) string {
+        // Use X-Forwarded-For if behind a proxy
+        if xff := c.Get("X-Forwarded-For"); xff != "" {
+            // Get first IP in the chain
+            ips := strings.Split(xff, ",")
+            return strings.TrimSpace(ips[0])
+        }
+        return c.IP()
+    },
+}))
+```
+
+## Testing
+
+```bash
+# Make requests and check headers
+curl -I http://localhost:3000
+
+# Response headers:
+X-RateLimit-Limit: 5
+X-RateLimit-Remaining: 4
+X-RateLimit-Reset: 1234567890
+
+# After exceeding limit:
+HTTP/1.1 429 Too Many Requests
+Retry-After: 45
+X-RateLimit-Limit: 5
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1234567890
+```
+
+## Storage Backends
+
+You can use any storage from the [Fiber storage](https://github.com/gofiber/storage/) package:
+
+- Memory (default, single process)
+- Redis
+- Memcache
+- PostgreSQL
+- MySQL
+- SQLite
+- MongoDB
+- And more...
+
+```go
+import "github.com/gofiber/storage/sqlite3/v2"
+
+storage := sqlite3.New()
+
+app.Use(limiter.New(limiter.Config{
+    Storage: storage,
+}))
+```

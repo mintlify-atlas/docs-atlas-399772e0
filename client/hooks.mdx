@@ -1,0 +1,493 @@
+---
+title: Request/Response Hooks
+description: Intercept and modify requests and responses
+---
+
+# Request/Response Hooks
+
+Hooks allow you to intercept and modify the request or response flow of the Fiber client. They're useful for logging, authentication, monitoring, and custom processing logic.
+
+## Hook Types
+
+There are two types of hooks:
+
+<CardGroup cols={2}>
+  <Card title="Request Hooks" icon="arrow-right">
+    Execute before the HTTP request is sent
+  </Card>
+  <Card title="Response Hooks" icon="arrow-left">
+    Execute after the HTTP response is received
+  </Card>
+</CardGroup>
+
+## Request Hooks
+
+Request hooks are executed before sending the HTTP request:
+
+**Signature:**
+```go
+type RequestHook func(*Client, *Request) error
+```
+
+### Add Request Hook
+
+Add a hook that modifies requests:
+
+```go
+c := client.New()
+
+c.AddRequestHook(func(c *client.Client, r *client.Request) error {
+    // Add authorization header to all requests
+    r.SetHeader("Authorization", "Bearer token123")
+    return nil
+})
+
+resp, err := c.Get("https://api.example.com/users")
+```
+
+**Signature:**
+```go
+func (c *Client) AddRequestHook(h ...RequestHook) *Client
+```
+
+### URL Rewriting Hook
+
+Rewrite request URLs before sending:
+
+```go
+type Repository struct {
+    Name        string `json:"name"`
+    FullName    string `json:"full_name"`
+    Description string `json:"description"`
+    Owner       struct {
+        Login string `json:"login"`
+    } `json:"owner"`
+}
+
+c := client.New()
+
+// Add a request hook that prepends the base URL
+c.AddRequestHook(func(c *client.Client, r *client.Request) error {
+    r.SetURL("https://api.github.com/" + r.URL())
+    return nil
+})
+
+resp, err := c.Get("repos/gofiber/fiber")
+if err != nil {
+    panic(err)
+}
+
+var repo Repository
+if err := resp.JSON(&repo); err != nil {
+    panic(err)
+}
+
+fmt.Printf("Repository: %s\n", repo.FullName)
+fmt.Printf("Owner: %s\n", repo.Owner.Login)
+```
+
+### Logging Hook
+
+Log all outgoing requests:
+
+```go
+c := client.New()
+
+c.AddRequestHook(func(c *client.Client, r *client.Request) error {
+    fmt.Printf("[REQUEST] %s %s\n", r.Method(), r.URL())
+    
+    // Log headers
+    for key, values := range r.Headers() {
+        fmt.Printf("  %s: %v\n", key, values)
+    }
+    
+    return nil
+})
+```
+
+### Authentication Hook
+
+Add authentication to requests:
+
+```go
+func getAuthToken() string {
+    // Fetch token from storage or refresh if needed
+    return "your-auth-token"
+}
+
+c := client.New()
+
+c.AddRequestHook(func(c *client.Client, r *client.Request) error {
+    token := getAuthToken()
+    r.SetHeader("Authorization", "Bearer "+token)
+    return nil
+})
+```
+
+### Error Handling in Hooks
+
+If a request hook returns an error, the request is aborted:
+
+```go
+c := client.New()
+
+c.AddRequestHook(func(c *client.Client, r *client.Request) error {
+    fmt.Println("Hook 1")
+    return errors.New("request aborted")
+})
+
+c.AddRequestHook(func(c *client.Client, r *client.Request) error {
+    fmt.Println("Hook 2") // This won't execute
+    return nil
+})
+
+_, err := c.Get("https://example.com/")
+if err != nil {
+    fmt.Printf("Error: %v\n", err)
+}
+// Output:
+// Hook 1
+// Error: request aborted
+```
+
+<Warning>
+  If a request hook returns an error, Fiber stops processing and returns the error immediately. Subsequent hooks are not executed.
+</Warning>
+
+### Built-in Request Hooks
+
+Fiber includes built-in request hooks that run automatically:
+
+1. **parserRequestURL**: Normalizes URLs and applies path/query parameters
+2. **parserRequestHeader**: Sets headers, cookies, content type, referer, and user agent
+3. **parserRequestBody**: Serializes request body (JSON, XML, form, files, etc.)
+
+These hooks run in order before user-defined hooks.
+
+## Response Hooks
+
+Response hooks are executed after receiving the HTTP response:
+
+**Signature:**
+```go
+type ResponseHook func(*Client, *Response, *Request) error
+```
+
+### Add Response Hook
+
+Add a hook that processes responses:
+
+```go
+c := client.New()
+
+c.AddResponseHook(func(c *client.Client, resp *client.Response, req *client.Request) error {
+    fmt.Printf("Response Status: %d\n", resp.StatusCode())
+    fmt.Printf("Response Time: %s\n", time.Since(startTime))
+    return nil
+})
+
+resp, err := c.Get("https://api.example.com/users")
+```
+
+**Signature:**
+```go
+func (c *Client) AddResponseHook(h ...ResponseHook) *Client
+```
+
+### Logging Response Hook
+
+Log response details:
+
+```go
+c := client.New()
+
+c.AddResponseHook(func(c *client.Client, resp *client.Response, req *client.Request) error {
+    fmt.Printf("[RESPONSE] %s %s -> %d\n", req.Method(), req.URL(), resp.StatusCode())
+    fmt.Printf("Protocol: %s\n", resp.Protocol())
+    
+    // Log headers
+    fmt.Println("Headers:")
+    for key, values := range resp.Headers() {
+        fmt.Printf("  %s: %v\n", key, values)
+    }
+    
+    return nil
+})
+
+_, err := c.Get("https://example.com/")
+if err != nil {
+    panic(err)
+}
+```
+
+### Error Checking Hook
+
+Check for API errors in responses:
+
+```go
+type APIError struct {
+    Error   string `json:"error"`
+    Message string `json:"message"`
+}
+
+c := client.New()
+
+c.AddResponseHook(func(c *client.Client, resp *client.Response, req *client.Request) error {
+    if resp.StatusCode() >= 400 {
+        var apiErr APIError
+        if err := resp.JSON(&apiErr); err == nil {
+            return fmt.Errorf("API error: %s - %s", apiErr.Error, apiErr.Message)
+        }
+        return fmt.Errorf("HTTP error: %d %s", resp.StatusCode(), resp.Status())
+    }
+    return nil
+})
+
+resp, err := c.Get("https://api.example.com/users/999")
+if err != nil {
+    fmt.Printf("Request failed: %v\n", err)
+    return
+}
+```
+
+### Metrics Hook
+
+Collect metrics from responses:
+
+```go
+type Metrics struct {
+    TotalRequests   int
+    SuccessRequests int
+    ErrorRequests   int
+    mu              sync.Mutex
+}
+
+var metrics Metrics
+
+c := client.New()
+
+c.AddResponseHook(func(c *client.Client, resp *client.Response, req *client.Request) error {
+    metrics.mu.Lock()
+    defer metrics.mu.Unlock()
+    
+    metrics.TotalRequests++
+    
+    if resp.StatusCode() >= 200 && resp.StatusCode() < 300 {
+        metrics.SuccessRequests++
+    } else {
+        metrics.ErrorRequests++
+    }
+    
+    return nil
+})
+```
+
+### Error Handling in Response Hooks
+
+If a response hook returns an error, subsequent hooks are skipped:
+
+```go
+c := client.New()
+
+c.AddResponseHook(func(c *client.Client, resp *client.Response, req *client.Request) error {
+    fmt.Println("Hook 1")
+    return nil
+})
+
+c.AddResponseHook(func(c *client.Client, resp *client.Response, req *client.Request) error {
+    fmt.Println("Hook 2")
+    return errors.New("processing error")
+})
+
+c.AddResponseHook(func(c *client.Client, resp *client.Response, req *client.Request) error {
+    fmt.Println("Hook 3") // This won't execute
+    return nil
+})
+
+_, err := c.Get("https://example.com/")
+if err != nil {
+    fmt.Printf("Error: %v\n", err)
+}
+// Output:
+// Hook 1
+// Hook 2
+// Error: processing error
+```
+
+<Warning>
+  If a response hook returns an error, Fiber stops processing subsequent hooks and returns the error.
+</Warning>
+
+### Built-in Response Hooks
+
+Fiber includes built-in response hooks:
+
+1. **parserResponseCookie**: Parses cookies from the response and stores them in the cookie jar
+2. **logger**: Logs request and response details when debug mode is enabled
+
+## Hook Execution Order
+
+Hooks execute in FIFO (First In, First Out) order:
+
+```go
+c := client.New()
+
+c.AddRequestHook(func(c *client.Client, r *client.Request) error {
+    fmt.Println("Request Hook 1")
+    return nil
+})
+
+c.AddRequestHook(func(c *client.Client, r *client.Request) error {
+    fmt.Println("Request Hook 2")
+    return nil
+})
+
+c.AddResponseHook(func(c *client.Client, resp *client.Response, req *client.Request) error {
+    fmt.Println("Response Hook 1")
+    return nil
+})
+
+c.AddResponseHook(func(c *client.Client, resp *client.Response, req *client.Request) error {
+    fmt.Println("Response Hook 2")
+    return nil
+})
+
+_, err := c.Get("https://example.com/")
+if err != nil {
+    panic(err)
+}
+
+// Output:
+// Request Hook 1
+// Request Hook 2
+// Response Hook 1
+// Response Hook 2
+```
+
+<Info>
+  Built-in hooks execute before user-defined hooks. For requests: built-in hooks run first, then user hooks. For responses: built-in hooks run first, then user hooks.
+</Info>
+
+## Get Configured Hooks
+
+Retrieve the currently configured hooks:
+
+```go
+// Get request hooks
+requestHooks := c.RequestHook()
+fmt.Printf("Request hooks: %d\n", len(requestHooks))
+
+// Get response hooks
+responseHooks := c.ResponseHook()
+fmt.Printf("Response hooks: %d\n", len(responseHooks))
+```
+
+**Signature:**
+```go
+func (c *Client) RequestHook() []RequestHook
+func (c *Client) ResponseHook() []ResponseHook
+```
+
+## Common Use Cases
+
+### Retry Logic
+
+Implement custom retry logic:
+
+```go
+c := client.New()
+
+var attempts int
+
+c.AddResponseHook(func(c *client.Client, resp *client.Response, req *client.Request) error {
+    if resp.StatusCode() >= 500 && attempts < 3 {
+        attempts++
+        fmt.Printf("Retrying request (attempt %d)...\n", attempts)
+        time.Sleep(time.Second * time.Duration(attempts))
+        // Trigger retry by returning an error
+        return fmt.Errorf("server error, retrying")
+    }
+    attempts = 0
+    return nil
+})
+```
+
+### Rate Limiting
+
+Implement client-side rate limiting:
+
+```go
+import "golang.org/x/time/rate"
+
+limiter := rate.NewLimiter(rate.Every(time.Second), 10) // 10 requests per second
+
+c := client.New()
+
+c.AddRequestHook(func(c *client.Client, r *client.Request) error {
+    if err := limiter.Wait(context.Background()); err != nil {
+        return err
+    }
+    return nil
+})
+```
+
+### Request/Response Correlation
+
+Add correlation IDs for tracking:
+
+```go
+import "github.com/google/uuid"
+
+c := client.New()
+
+c.AddRequestHook(func(c *client.Client, r *client.Request) error {
+    correlationID := uuid.New().String()
+    r.SetHeader("X-Correlation-ID", correlationID)
+    fmt.Printf("Request ID: %s\n", correlationID)
+    return nil
+})
+
+c.AddResponseHook(func(c *client.Client, resp *client.Response, req *client.Request) error {
+    correlationID := req.Header("X-Correlation-ID")
+    fmt.Printf("Response for ID: %s - Status: %d\n", correlationID, resp.StatusCode())
+    return nil
+})
+```
+
+### Cache Responses
+
+Implement simple response caching:
+
+```go
+var cache sync.Map
+
+c := client.New()
+
+c.AddRequestHook(func(c *client.Client, r *client.Request) error {
+    // Check cache
+    if cached, ok := cache.Load(r.URL()); ok {
+        fmt.Println("Using cached response")
+        // Use cached response
+    }
+    return nil
+})
+
+c.AddResponseHook(func(c *client.Client, resp *client.Response, req *client.Request) error {
+    // Cache successful responses
+    if resp.StatusCode() == 200 {
+        cache.Store(req.URL(), resp.Body())
+    }
+    return nil
+})
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="RESTful Patterns" icon="network-wired" href="./rest">
+    Learn RESTful API patterns
+  </Card>
+  <Card title="Examples" icon="code" href="./examples">
+    See complete working examples
+  </Card>
+</CardGroup>

@@ -1,0 +1,635 @@
+---
+title: Making Requests
+description: Send HTTP requests with the Fiber client
+---
+
+# Making Requests
+
+The `Request` struct encapsulates all data needed to send an HTTP request, including URL, method, headers, body, query parameters, and more.
+
+## HTTP Methods
+
+The client supports all standard HTTP methods:
+
+### GET
+
+Retrieve data from a server:
+
+```go
+resp, err := client.Get("https://api.example.com/users")
+```
+
+**Signature:**
+```go
+func (c *Client) Get(url string, cfg ...Config) (*Response, error)
+func (r *Request) Get(url string) (*Response, error)
+```
+
+### POST
+
+Send data to create a resource:
+
+```go
+resp, err := client.Post("https://api.example.com/users", client.Config{
+    Body: map[string]string{
+        "name": "John Doe",
+        "email": "john@example.com",
+    },
+})
+```
+
+**Signature:**
+```go
+func (c *Client) Post(url string, cfg ...Config) (*Response, error)
+func (r *Request) Post(url string) (*Response, error)
+```
+
+### PUT
+
+Update an existing resource:
+
+```go
+resp, err := client.Put("https://api.example.com/users/123", client.Config{
+    Body: map[string]string{
+        "name": "Jane Doe",
+    },
+})
+```
+
+**Signature:**
+```go
+func (c *Client) Put(url string, cfg ...Config) (*Response, error)
+func (r *Request) Put(url string) (*Response, error)
+```
+
+### PATCH
+
+Partially update a resource:
+
+```go
+resp, err := client.Patch("https://api.example.com/users/123", client.Config{
+    Body: map[string]string{
+        "email": "newemail@example.com",
+    },
+})
+```
+
+**Signature:**
+```go
+func (c *Client) Patch(url string, cfg ...Config) (*Response, error)
+func (r *Request) Patch(url string) (*Response, error)
+```
+
+### DELETE
+
+Delete a resource:
+
+```go
+resp, err := client.Delete("https://api.example.com/users/123")
+```
+
+**Signature:**
+```go
+func (c *Client) Delete(url string, cfg ...Config) (*Response, error)
+func (r *Request) Delete(url string) (*Response, error)
+```
+
+### HEAD
+
+Retrieve headers without the response body:
+
+```go
+resp, err := client.Head("https://api.example.com/users/123")
+```
+
+**Signature:**
+```go
+func (c *Client) Head(url string, cfg ...Config) (*Response, error)
+func (r *Request) Head(url string) (*Response, error)
+```
+
+### OPTIONS
+
+Check which HTTP methods are supported:
+
+```go
+resp, err := client.Options("https://api.example.com/users")
+```
+
+**Signature:**
+```go
+func (c *Client) Options(url string, cfg ...Config) (*Response, error)
+func (r *Request) Options(url string) (*Response, error)
+```
+
+### Custom
+
+Use a custom HTTP method:
+
+```go
+resp, err := client.Custom("https://api.example.com/users", "TRACE")
+```
+
+**Signature:**
+```go
+func (c *Client) Custom(url, method string, cfg ...Config) (*Response, error)
+func (r *Request) Custom(url, method string) (*Response, error)
+```
+
+## Request Configuration
+
+Use the `Config` struct to configure requests:
+
+```go
+type Config struct {
+    Ctx                    context.Context
+    Body                   any
+    Header                 map[string]string
+    Param                  map[string]string
+    Cookie                 map[string]string
+    PathParam              map[string]string
+    FormData               map[string]string
+    UserAgent              string
+    Referer                string
+    File                   []*File
+    Timeout                time.Duration
+    MaxRedirects           int
+    DisablePathNormalizing bool
+}
+```
+
+### Example with Config
+
+```go
+resp, err := c.Post("https://api.example.com/users", client.Config{
+    Header: map[string]string{
+        "Authorization": "Bearer token123",
+        "Content-Type": "application/json",
+    },
+    Param: map[string]string{
+        "page": "1",
+        "limit": "10",
+    },
+    Body: map[string]string{
+        "name": "John",
+    },
+    Timeout: 30 * time.Second,
+})
+```
+
+## Headers
+
+Set and manage request headers:
+
+### Set Single Header
+
+```go
+req := c.R().
+    SetHeader("Authorization", "Bearer token123").
+    SetHeader("Accept", "application/json")
+```
+
+**Signature:**
+```go
+func (r *Request) SetHeader(key, val string) *Request
+```
+
+### Set Multiple Headers
+
+```go
+req := c.R().SetHeaders(map[string]string{
+    "Authorization": "Bearer token123",
+    "Accept": "application/json",
+    "User-Agent": "MyApp/1.0",
+})
+```
+
+**Signature:**
+```go
+func (r *Request) SetHeaders(h map[string]string) *Request
+```
+
+### Add Header
+
+Add a header without replacing existing values:
+
+```go
+req := c.R().
+    AddHeader("Accept", "application/json").
+    AddHeader("Accept", "application/xml") // Multiple Accept headers
+```
+
+**Signature:**
+```go
+func (r *Request) AddHeader(key, val string) *Request
+```
+
+### Get Headers
+
+```go
+headers := req.Header("Authorization")
+
+// Iterate over all headers
+for key, values := range req.Headers() {
+    fmt.Printf("%s: %v\n", key, values)
+}
+```
+
+**Signature:**
+```go
+func (r *Request) Header(key string) []string
+func (r *Request) Headers() iter.Seq2[string, []string]
+```
+
+## Query Parameters
+
+Add query parameters to the URL:
+
+### Set Parameters
+
+```go
+req := c.R().
+    SetParam("page", "1").
+    SetParam("limit", "10").
+    Get("https://api.example.com/users")
+// Results in: https://api.example.com/users?page=1&limit=10
+```
+
+**Signature:**
+```go
+func (r *Request) SetParam(key, val string) *Request
+```
+
+### Set Multiple Parameters
+
+```go
+req := c.R().SetParams(map[string]string{
+    "page": "1",
+    "limit": "10",
+    "sort": "name",
+})
+```
+
+**Signature:**
+```go
+func (r *Request) SetParams(m map[string]string) *Request
+```
+
+### Set Parameters from Struct
+
+```go
+type QueryParams struct {
+    Page  int    `param:"page"`
+    Limit int    `param:"limit"`
+    Sort  string `param:"sort"`
+}
+
+params := QueryParams{Page: 1, Limit: 10, Sort: "name"}
+req := c.R().SetParamsWithStruct(params)
+```
+
+**Signature:**
+```go
+func (r *Request) SetParamsWithStruct(v any) *Request
+```
+
+### Get Parameters
+
+```go
+page := req.Param("page")
+
+// Iterate over all parameters
+for key, values := range req.Params() {
+    fmt.Printf("%s: %v\n", key, values)
+}
+```
+
+**Signature:**
+```go
+func (r *Request) Param(key string) []string
+func (r *Request) Params() iter.Seq2[string, []string]
+```
+
+## Path Parameters
+
+Use path parameters for dynamic URLs:
+
+```go
+c := client.New()
+c.SetPathParam("id", "123")
+
+resp, err := c.Get("https://api.example.com/users/:id")
+// Results in: https://api.example.com/users/123
+```
+
+**Signature:**
+```go
+func (r *Request) SetPathParam(key, val string) *Request
+func (r *Request) SetPathParams(m map[string]string) *Request
+func (r *Request) SetPathParamsWithStruct(v any) *Request
+```
+
+## Request Body
+
+Send different types of request bodies:
+
+### JSON Body
+
+```go
+type User struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+user := User{Name: "John Doe", Email: "john@example.com"}
+resp, err := c.R().
+    SetJSON(user).
+    Post("https://api.example.com/users")
+```
+
+**Signature:**
+```go
+func (r *Request) SetJSON(v any) *Request
+```
+
+### XML Body
+
+```go
+type User struct {
+    XMLName xml.Name `xml:"user"`
+    Name    string   `xml:"name"`
+    Email   string   `xml:"email"`
+}
+
+user := User{Name: "John Doe", Email: "john@example.com"}
+resp, err := c.R().
+    SetXML(user).
+    Post("https://api.example.com/users")
+```
+
+**Signature:**
+```go
+func (r *Request) SetXML(v any) *Request
+```
+
+### CBOR Body
+
+```go
+data := map[string]interface{}{
+    "name": "John Doe",
+    "age": 30,
+}
+
+resp, err := c.R().
+    SetCBOR(data).
+    Post("https://api.example.com/users")
+```
+
+**Signature:**
+```go
+func (r *Request) SetCBOR(v any) *Request
+```
+
+### Raw Body
+
+```go
+resp, err := c.R().
+    SetRawBody([]byte("raw body content")).
+    Post("https://api.example.com/users")
+```
+
+**Signature:**
+```go
+func (r *Request) SetRawBody(v []byte) *Request
+```
+
+### Form Data
+
+```go
+resp, err := c.R().
+    SetFormData("name", "John Doe").
+    SetFormData("email", "john@example.com").
+    Post("https://api.example.com/users")
+
+// Or use a map
+resp, err := c.R().
+    SetFormDataWithMap(map[string]string{
+        "name": "John Doe",
+        "email": "john@example.com",
+    }).
+    Post("https://api.example.com/users")
+```
+
+**Signature:**
+```go
+func (r *Request) SetFormData(key, val string) *Request
+func (r *Request) SetFormDataWithMap(m map[string]string) *Request
+func (r *Request) SetFormDataWithStruct(v any) *Request
+```
+
+## File Uploads
+
+Upload files with multipart/form-data:
+
+### Upload Single File
+
+```go
+resp, err := c.R().
+    AddFile("/path/to/file.pdf").
+    Post("https://api.example.com/upload")
+```
+
+**Signature:**
+```go
+func (r *Request) AddFile(path string) *Request
+```
+
+### Upload Multiple Files
+
+```go
+resp, err := c.R().
+    AddFile("/path/to/file1.pdf").
+    AddFile("/path/to/file2.jpg").
+    Post("https://api.example.com/upload")
+```
+
+### Upload File with Reader
+
+```go
+file, _ := os.Open("/path/to/file.pdf")
+defer file.Close()
+
+resp, err := c.R().
+    AddFileWithReader("document.pdf", file).
+    Post("https://api.example.com/upload")
+```
+
+**Signature:**
+```go
+func (r *Request) AddFileWithReader(name string, reader io.ReadCloser) *Request
+```
+
+### Upload Files with Form Data
+
+```go
+resp, err := c.R().
+    SetFormData("description", "My file upload").
+    AddFile("/path/to/file.pdf").
+    Post("https://api.example.com/upload")
+```
+
+## Cookies
+
+Set cookies for requests:
+
+```go
+resp, err := c.R().
+    SetCookie("session_id", "abc123").
+    SetCookie("user_id", "42").
+    Get("https://api.example.com/profile")
+
+// Or use a map
+resp, err := c.R().
+    SetCookies(map[string]string{
+        "session_id": "abc123",
+        "user_id": "42",
+    }).
+    Get("https://api.example.com/profile")
+```
+
+**Signature:**
+```go
+func (r *Request) SetCookie(key, val string) *Request
+func (r *Request) SetCookies(m map[string]string) *Request
+func (r *Request) SetCookiesWithStruct(v any) *Request
+```
+
+## Context and Timeouts
+
+### Set Context
+
+Use context for cancellation:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
+
+resp, err := c.R().
+    SetContext(ctx).
+    Get("https://api.example.com/slow-endpoint")
+```
+
+**Signature:**
+```go
+func (r *Request) SetContext(ctx context.Context) *Request
+```
+
+### Set Timeout
+
+```go
+resp, err := c.R().
+    SetTimeout(30 * time.Second).
+    Get("https://api.example.com/users")
+```
+
+**Signature:**
+```go
+func (r *Request) SetTimeout(t time.Duration) *Request
+```
+
+## Redirects
+
+Control redirect behavior:
+
+```go
+resp, err := c.R().
+    SetMaxRedirects(5).
+    Get("https://api.example.com/redirect")
+```
+
+**Signature:**
+```go
+func (r *Request) SetMaxRedirects(count int) *Request
+```
+
+## Advanced Configuration
+
+### User Agent
+
+```go
+resp, err := c.R().
+    SetUserAgent("MyApp/1.0").
+    Get("https://api.example.com/users")
+```
+
+**Signature:**
+```go
+func (r *Request) SetUserAgent(ua string) *Request
+```
+
+### Referer
+
+```go
+resp, err := c.R().
+    SetReferer("https://example.com").
+    Get("https://api.example.com/users")
+```
+
+**Signature:**
+```go
+func (r *Request) SetReferer(referer string) *Request
+```
+
+### Disable Path Normalizing
+
+```go
+resp, err := c.R().
+    SetDisablePathNormalizing(true).
+    Get("https://api.example.com/path//with///slashes")
+```
+
+**Signature:**
+```go
+func (r *Request) SetDisablePathNormalizing(disable bool) *Request
+```
+
+## Resource Management
+
+Use pooled requests for better performance:
+
+```go
+req := client.AcquireRequest()
+defer client.ReleaseRequest(req)
+
+req.SetClient(c).
+    SetURL("https://api.example.com/users").
+    SetMethod(fiber.MethodGet)
+
+resp, err := req.Send()
+if err != nil {
+    panic(err)
+}
+defer resp.Close()
+```
+
+**Signature:**
+```go
+func AcquireRequest() *Request
+func ReleaseRequest(req *Request)
+func (r *Request) Send() (*Response, error)
+```
+
+<Warning>
+  Do not use requests after releasing them to the pool, as this can cause data races.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Handling Responses" icon="inbox" href="./response">
+    Learn how to parse and process responses
+  </Card>
+  <Card title="Request/Response Hooks" icon="hook" href="./hooks">
+    Intercept and modify requests
+  </Card>
+</CardGroup>

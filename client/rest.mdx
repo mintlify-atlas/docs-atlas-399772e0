@@ -1,0 +1,569 @@
+---
+title: RESTful Patterns
+description: Build RESTful API clients with Fiber
+---
+
+# RESTful Patterns
+
+The Fiber client is designed to make building RESTful API clients straightforward and efficient. This guide shows common patterns for CRUD operations and API interactions.
+
+## Basic REST Client
+
+Create a client configured for a REST API:
+
+```go
+import (
+    "github.com/gofiber/fiber/v3/client"
+    "time"
+)
+
+func NewAPIClient(baseURL, apiKey string) *client.Client {
+    c := client.New()
+    
+    c.SetBaseURL(baseURL)
+    c.SetTimeout(30 * time.Second)
+    
+    // Set default headers
+    c.SetHeader("Accept", "application/json")
+    c.SetHeader("Content-Type", "application/json")
+    c.SetHeader("Authorization", "Bearer "+apiKey)
+    
+    return c
+}
+
+// Usage
+c := NewAPIClient("https://api.example.com/v1", "your-api-key")
+```
+
+## CRUD Operations
+
+Implement standard CRUD operations:
+
+### Create (POST)
+
+Create a new resource:
+
+```go
+type User struct {
+    ID    int    `json:"id,omitempty"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+func CreateUser(c *client.Client, user User) (*User, error) {
+    resp, err := c.R().
+        SetJSON(user).
+        Post("/users")
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Close()
+    
+    if resp.StatusCode() != 201 {
+        return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode())
+    }
+    
+    var createdUser User
+    if err := resp.JSON(&createdUser); err != nil {
+        return nil, err
+    }
+    
+    return &createdUser, nil
+}
+
+// Usage
+newUser := User{Name: "John Doe", Email: "john@example.com"}
+user, err := CreateUser(c, newUser)
+if err != nil {
+    panic(err)
+}
+
+fmt.Printf("Created user ID: %d\n", user.ID)
+```
+
+### Read (GET)
+
+Retrieve a single resource:
+
+```go
+func GetUser(c *client.Client, id int) (*User, error) {
+    resp, err := c.R().
+        SetPathParam("id", strconv.Itoa(id)).
+        Get("/users/:id")
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Close()
+    
+    if resp.StatusCode() != 200 {
+        return nil, fmt.Errorf("user not found: %d", resp.StatusCode())
+    }
+    
+    var user User
+    if err := resp.JSON(&user); err != nil {
+        return nil, err
+    }
+    
+    return &user, nil
+}
+
+// Usage
+user, err := GetUser(c, 123)
+if err != nil {
+    panic(err)
+}
+
+fmt.Printf("User: %s (%s)\n", user.Name, user.Email)
+```
+
+### List (GET)
+
+Retrieve multiple resources with pagination:
+
+```go
+type UserListParams struct {
+    Page     int    `param:"page"`
+    PageSize int    `param:"page_size"`
+    Sort     string `param:"sort"`
+}
+
+type UserListResponse struct {
+    Users      []User `json:"users"`
+    Total      int    `json:"total"`
+    Page       int    `json:"page"`
+    TotalPages int    `json:"total_pages"`
+}
+
+func ListUsers(c *client.Client, params UserListParams) (*UserListResponse, error) {
+    resp, err := c.R().
+        SetParamsWithStruct(params).
+        Get("/users")
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Close()
+    
+    if resp.StatusCode() != 200 {
+        return nil, fmt.Errorf("failed to list users: %d", resp.StatusCode())
+    }
+    
+    var result UserListResponse
+    if err := resp.JSON(&result); err != nil {
+        return nil, err
+    }
+    
+    return &result, nil
+}
+
+// Usage
+params := UserListParams{
+    Page:     1,
+    PageSize: 10,
+    Sort:     "name",
+}
+
+result, err := ListUsers(c, params)
+if err != nil {
+    panic(err)
+}
+
+fmt.Printf("Found %d users (page %d/%d)\n", len(result.Users), result.Page, result.TotalPages)
+```
+
+### Update (PUT/PATCH)
+
+Update an existing resource:
+
+```go
+func UpdateUser(c *client.Client, id int, user User) (*User, error) {
+    resp, err := c.R().
+        SetPathParam("id", strconv.Itoa(id)).
+        SetJSON(user).
+        Put("/users/:id")
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Close()
+    
+    if resp.StatusCode() != 200 {
+        return nil, fmt.Errorf("failed to update user: %d", resp.StatusCode())
+    }
+    
+    var updatedUser User
+    if err := resp.JSON(&updatedUser); err != nil {
+        return nil, err
+    }
+    
+    return &updatedUser, nil
+}
+
+// Partial update with PATCH
+func PartialUpdateUser(c *client.Client, id int, updates map[string]interface{}) (*User, error) {
+    resp, err := c.R().
+        SetPathParam("id", strconv.Itoa(id)).
+        SetJSON(updates).
+        Patch("/users/:id")
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Close()
+    
+    if resp.StatusCode() != 200 {
+        return nil, fmt.Errorf("failed to update user: %d", resp.StatusCode())
+    }
+    
+    var user User
+    if err := resp.JSON(&user); err != nil {
+        return nil, err
+    }
+    
+    return &user, nil
+}
+
+// Usage
+updates := map[string]interface{}{
+    "email": "newemail@example.com",
+}
+
+user, err := PartialUpdateUser(c, 123, updates)
+if err != nil {
+    panic(err)
+}
+```
+
+### Delete (DELETE)
+
+Delete a resource:
+
+```go
+func DeleteUser(c *client.Client, id int) error {
+    resp, err := c.R().
+        SetPathParam("id", strconv.Itoa(id)).
+        Delete("/users/:id")
+    if err != nil {
+        return err
+    }
+    defer resp.Close()
+    
+    if resp.StatusCode() != 204 && resp.StatusCode() != 200 {
+        return fmt.Errorf("failed to delete user: %d", resp.StatusCode())
+    }
+    
+    return nil
+}
+
+// Usage
+if err := DeleteUser(c, 123); err != nil {
+    panic(err)
+}
+
+fmt.Println("User deleted successfully")
+```
+
+## Resource Client Pattern
+
+Organize API operations into a resource client:
+
+```go
+type UserClient struct {
+    client *client.Client
+}
+
+func NewUserClient(c *client.Client) *UserClient {
+    return &UserClient{client: c}
+}
+
+func (uc *UserClient) Create(user User) (*User, error) {
+    resp, err := uc.client.R().
+        SetJSON(user).
+        Post("/users")
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Close()
+    
+    var result User
+    if err := resp.JSON(&result); err != nil {
+        return nil, err
+    }
+    
+    return &result, nil
+}
+
+func (uc *UserClient) Get(id int) (*User, error) {
+    resp, err := uc.client.R().
+        SetPathParam("id", strconv.Itoa(id)).
+        Get("/users/:id")
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Close()
+    
+    var user User
+    if err := resp.JSON(&user); err != nil {
+        return nil, err
+    }
+    
+    return &user, nil
+}
+
+func (uc *UserClient) List(params UserListParams) (*UserListResponse, error) {
+    resp, err := uc.client.R().
+        SetParamsWithStruct(params).
+        Get("/users")
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Close()
+    
+    var result UserListResponse
+    if err := resp.JSON(&result); err != nil {
+        return nil, err
+    }
+    
+    return &result, nil
+}
+
+func (uc *UserClient) Update(id int, user User) (*User, error) {
+    resp, err := uc.client.R().
+        SetPathParam("id", strconv.Itoa(id)).
+        SetJSON(user).
+        Put("/users/:id")
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Close()
+    
+    var result User
+    if err := resp.JSON(&result); err != nil {
+        return nil, err
+    }
+    
+    return &result, nil
+}
+
+func (uc *UserClient) Delete(id int) error {
+    resp, err := uc.client.R().
+        SetPathParam("id", strconv.Itoa(id)).
+        Delete("/users/:id")
+    if err != nil {
+        return err
+    }
+    defer resp.Close()
+    
+    return nil
+}
+
+// Usage
+apiClient := NewAPIClient("https://api.example.com/v1", "your-api-key")
+users := NewUserClient(apiClient)
+
+// Create
+user, err := users.Create(User{Name: "John", Email: "john@example.com"})
+
+// Get
+user, err = users.Get(123)
+
+// List
+result, err := users.List(UserListParams{Page: 1, PageSize: 10})
+
+// Update
+user, err = users.Update(123, User{Name: "Jane"})
+
+// Delete
+err = users.Delete(123)
+```
+
+## Nested Resources
+
+Handle nested API resources:
+
+```go
+type Comment struct {
+    ID     int    `json:"id"`
+    PostID int    `json:"post_id"`
+    Text   string `json:"text"`
+}
+
+// Get comments for a post
+func GetPostComments(c *client.Client, postID int) ([]Comment, error) {
+    resp, err := c.R().
+        SetPathParam("postId", strconv.Itoa(postID)).
+        Get("/posts/:postId/comments")
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Close()
+    
+    var comments []Comment
+    if err := resp.JSON(&comments); err != nil {
+        return nil, err
+    }
+    
+    return comments, nil
+}
+
+// Create a comment on a post
+func CreatePostComment(c *client.Client, postID int, text string) (*Comment, error) {
+    comment := Comment{Text: text}
+    
+    resp, err := c.R().
+        SetPathParam("postId", strconv.Itoa(postID)).
+        SetJSON(comment).
+        Post("/posts/:postId/comments")
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Close()
+    
+    var result Comment
+    if err := resp.JSON(&result); err != nil {
+        return nil, err
+    }
+    
+    return &result, nil
+}
+```
+
+## Error Handling
+
+Handle API errors consistently:
+
+```go
+type APIError struct {
+    Status  int    `json:"status"`
+    Code    string `json:"code"`
+    Message string `json:"message"`
+}
+
+func (e *APIError) Error() string {
+    return fmt.Sprintf("API error %d (%s): %s", e.Status, e.Code, e.Message)
+}
+
+func HandleAPIResponse(resp *client.Response) error {
+    if resp.StatusCode() >= 200 && resp.StatusCode() < 300 {
+        return nil
+    }
+    
+    var apiErr APIError
+    if err := resp.JSON(&apiErr); err != nil {
+        return fmt.Errorf("HTTP %d: %s", resp.StatusCode(), resp.Status())
+    }
+    
+    apiErr.Status = resp.StatusCode()
+    return &apiErr
+}
+
+// Usage in a resource method
+func (uc *UserClient) Get(id int) (*User, error) {
+    resp, err := uc.client.R().
+        SetPathParam("id", strconv.Itoa(id)).
+        Get("/users/:id")
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Close()
+    
+    if err := HandleAPIResponse(resp); err != nil {
+        return nil, err
+    }
+    
+    var user User
+    if err := resp.JSON(&user); err != nil {
+        return nil, err
+    }
+    
+    return &user, nil
+}
+```
+
+## Filtering and Searching
+
+Implement search and filter functionality:
+
+```go
+type UserSearchParams struct {
+    Query    string `param:"q"`
+    Role     string `param:"role"`
+    Active   *bool  `param:"active"`
+    Page     int    `param:"page"`
+    PageSize int    `param:"page_size"`
+}
+
+func SearchUsers(c *client.Client, params UserSearchParams) ([]User, error) {
+    resp, err := c.R().
+        SetParamsWithStruct(params).
+        Get("/users/search")
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Close()
+    
+    var users []User
+    if err := resp.JSON(&users); err != nil {
+        return nil, err
+    }
+    
+    return users, nil
+}
+
+// Usage
+active := true
+params := UserSearchParams{
+    Query:    "john",
+    Role:     "admin",
+    Active:   &active,
+    Page:     1,
+    PageSize: 20,
+}
+
+users, err := SearchUsers(c, params)
+```
+
+## Batch Operations
+
+Perform operations on multiple resources:
+
+```go
+type BatchCreateRequest struct {
+    Users []User `json:"users"`
+}
+
+type BatchCreateResponse struct {
+    Created []User `json:"created"`
+    Errors  []struct {
+        Index   int    `json:"index"`
+        Message string `json:"message"`
+    } `json:"errors"`
+}
+
+func BatchCreateUsers(c *client.Client, users []User) (*BatchCreateResponse, error) {
+    req := BatchCreateRequest{Users: users}
+    
+    resp, err := c.R().
+        SetJSON(req).
+        Post("/users/batch")
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Close()
+    
+    var result BatchCreateResponse
+    if err := resp.JSON(&result); err != nil {
+        return nil, err
+    }
+    
+    return &result, nil
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Examples" icon="code" href="./examples">
+    See complete working examples
+  </Card>
+  <Card title="Overview" icon="book" href="./overview">
+    Return to client overview
+  </Card>
+</CardGroup>

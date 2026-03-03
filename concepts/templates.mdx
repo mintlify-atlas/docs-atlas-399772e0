@@ -1,0 +1,506 @@
+---
+title: Template Engines
+description: Learn how to integrate template engines with Fiber for server-side rendering.
+---
+
+Fiber supports template engines for server-side rendering through the `Views` interface. This allows you to render HTML templates with dynamic data.
+
+## How Templates Work
+
+Fiber uses a `Views` interface that template engines implement. You configure the engine when creating your app:
+
+```go
+app := fiber.New(fiber.Config{
+    Views: engine,  // Your template engine
+})
+```
+
+Then render templates in your handlers:
+
+```go
+app.Get("/", func(c fiber.Ctx) error {
+    return c.Render("index", fiber.Map{
+        "Title": "Homepage",
+        "User":  "John",
+    })
+})
+```
+
+## Views Interface
+
+The Views interface requires two methods:
+
+```go
+type Views interface {
+    Load() error
+    Render(out io.Writer, name string, binding any, layout ...string) error
+}
+```
+
+- `Load()`: Load/compile templates (called during app initialization)
+- `Render()`: Render a template with data
+
+## Template Engines
+
+Fiber works with multiple template engines through the [template](https://github.com/gofiber/template) middleware package.
+
+### Supported Engines
+
+<CardGroup cols={2}>
+  <Card title="html" icon="file-code">
+    Go's built-in html/template
+  </Card>
+  <Card title="django" icon="python">
+    Django-style templates
+  </Card>
+  <Card title="handlebars" icon="hand">
+    Handlebars templates
+  </Card>
+  <Card title="mustache" icon="mustache">
+    Mustache templates
+  </Card>
+  <Card title="pug" icon="gem">
+    Pug (formerly Jade)
+  </Card>
+  <Card title="amber" icon="gem">
+    Amber templates
+  </Card>
+  <Card title="jet" icon="jet-fighter">
+    Jet templates
+  </Card>
+  <Card title="ace" icon="spade">
+    Ace templates
+  </Card>
+</CardGroup>
+
+## Using html/template
+
+The most common engine is Go's built-in `html/template`:
+
+```bash
+go get github.com/gofiber/template/html/v2
+```
+
+### Basic Setup
+
+```go
+package main
+
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/template/html/v2"
+)
+
+func main() {
+    // Create template engine
+    engine := html.New("./views", ".html")
+    
+    // Create app with views
+    app := fiber.New(fiber.Config{
+        Views: engine,
+    })
+    
+    app.Get("/", func(c fiber.Ctx) error {
+        return c.Render("index", fiber.Map{
+            "Title": "Homepage",
+        })
+    })
+    
+    app.Listen(":3000")
+}
+```
+
+### Template File
+
+```html views/index.html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{.Title}}</title>
+</head>
+<body>
+    <h1>{{.Title}}</h1>
+    <p>Welcome to Fiber!</p>
+</body>
+</html>
+```
+
+## Template Configuration
+
+### Directory Structure
+
+```
+project/
+├── main.go
+└── views/
+    ├── index.html
+    ├── about.html
+    └── layouts/
+        └── main.html
+```
+
+### Engine Options
+
+```go
+engine := html.New("./views", ".html")
+
+// Reload templates on each render (development)
+engine.Reload(true)
+
+// Enable debug mode
+engine.Debug(true)
+
+// Add custom functions
+engine.AddFunc("upper", func(s string) string {
+    return strings.ToUpper(s)
+})
+```
+
+## Layouts
+
+Use layouts for shared template structure:
+
+### Layout Template
+
+```html views/layouts/main.html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{.Title}}</title>
+</head>
+<body>
+    <nav>
+        <a href="/">Home</a>
+        <a href="/about">About</a>
+    </nav>
+    
+    {{embed}}
+    
+    <footer>&copy; 2024</footer>
+</body>
+</html>
+```
+
+### Using Layouts
+
+```go
+app.Get("/", func(c fiber.Ctx) error {
+    // Render with layout
+    return c.Render("index", fiber.Map{
+        "Title": "Homepage",
+    }, "layouts/main")
+})
+```
+
+### Default Layout
+
+Set a global default layout:
+
+```go
+app := fiber.New(fiber.Config{
+    Views:       engine,
+    ViewsLayout: "layouts/main",
+})
+
+app.Get("/", func(c fiber.Ctx) error {
+    // Uses default layout
+    return c.Render("index", fiber.Map{
+        "Title": "Homepage",
+    })
+})
+```
+
+## Passing Data
+
+### Using fiber.Map
+
+```go
+app.Get("/user/:id", func(c fiber.Ctx) error {
+    return c.Render("user", fiber.Map{
+        "Name":  "John Doe",
+        "Email": "john@example.com",
+        "ID":    c.Params("id"),
+    })
+})
+```
+
+### Using Structs
+
+```go
+type User struct {
+    Name  string
+    Email string
+}
+
+app.Get("/user", func(c fiber.Ctx) error {
+    user := User{
+        Name:  "John Doe",
+        Email: "john@example.com",
+    }
+    
+    return c.Render("user", user)
+})
+```
+
+### Passing Locals
+
+Automatically pass `c.Locals()` to templates:
+
+```go
+app := fiber.New(fiber.Config{
+    Views:             engine,
+    PassLocalsToViews: true,
+})
+
+app.Use(func(c fiber.Ctx) error {
+    c.Locals("AppName", "My App")
+    c.Locals("Year", 2024)
+    return c.Next()
+})
+
+app.Get("/", func(c fiber.Ctx) error {
+    // AppName and Year are available in template
+    return c.Render("index", fiber.Map{})
+})
+```
+
+## ViewBind
+
+Pre-bind data for templates:
+
+```go
+app.Get("/", func(c fiber.Ctx) error {
+    // Add common data
+    c.ViewBind(fiber.Map{
+        "Title":   "Homepage",
+        "AppName": "My App",
+    })
+    
+    // Render - ViewBind data is included
+    return c.Render("index", fiber.Map{
+        "Content": "Welcome!",
+    })
+})
+```
+
+## Template Functions
+
+Add custom functions to templates:
+
+```go
+engine := html.New("./views", ".html")
+
+// Add function
+engine.AddFunc("upper", strings.ToUpper)
+
+engine.AddFunc("formatDate", func(t time.Time) string {
+    return t.Format("2006-01-02")
+})
+
+engine.AddFunc("add", func(a, b int) int {
+    return a + b
+})
+```
+
+### Using Functions
+
+```html
+<h1>{{upper .Title}}</h1>
+<p>Date: {{formatDate .Date}}</p>
+<p>Total: {{add .A .B}}</p>
+```
+
+## Reloading Templates
+
+Enable auto-reload during development:
+
+```go
+engine := html.New("./views", ".html")
+
+// Reload templates on each render
+engine.Reload(true)
+
+app := fiber.New(fiber.Config{
+    Views: engine,
+})
+```
+
+Or reload manually:
+
+```go
+app.Get("/reload", func(c fiber.Ctx) error {
+    if err := app.ReloadViews(); err != nil {
+        return err
+    }
+    return c.SendString("Templates reloaded")
+})
+```
+
+## Template Syntax Examples
+
+### Variables
+
+```html
+<h1>{{.Title}}</h1>
+<p>{{.Description}}</p>
+```
+
+### Conditionals
+
+```html
+{{if .User}}
+    <p>Welcome, {{.User.Name}}!</p>
+{{else}}
+    <p>Please log in</p>
+{{end}}
+```
+
+### Loops
+
+```html
+<ul>
+{{range .Items}}
+    <li>{{.Name}} - ${{.Price}}</li>
+{{end}}
+</ul>
+```
+
+### Nested Data
+
+```html
+<h2>{{.User.Name}}</h2>
+<p>{{.User.Profile.Bio}}</p>
+```
+
+## Error Handling
+
+Handle template rendering errors:
+
+```go
+app.Get("/", func(c fiber.Ctx) error {
+    if err := c.Render("index", fiber.Map{"Title": "Home"}); err != nil {
+        return c.Status(500).SendString("Template error: " + err.Error())
+    }
+    return nil
+})
+```
+
+## Using Other Template Engines
+
+### Pug
+
+```bash
+go get github.com/gofiber/template/pug/v2
+```
+
+```go
+import "github.com/gofiber/template/pug/v2"
+
+engine := pug.New("./views", ".pug")
+
+app := fiber.New(fiber.Config{
+    Views: engine,
+})
+```
+
+```pug views/index.pug
+doctype html
+html
+  head
+    title= Title
+  body
+    h1= Title
+    p Welcome to Fiber!
+```
+
+### Handlebars
+
+```bash
+go get github.com/gofiber/template/handlebars/v2
+```
+
+```go
+import "github.com/gofiber/template/handlebars/v2"
+
+engine := handlebars.New("./views", ".hbs")
+
+app := fiber.New(fiber.Config{
+    Views: engine,
+})
+```
+
+```handlebars views/index.hbs
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{Title}}</title>
+</head>
+<body>
+    <h1>{{Title}}</h1>
+    {{#if User}}
+        <p>Welcome, {{User.Name}}!</p>
+    {{/if}}
+</body>
+</html>
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use layouts for consistency">
+    Define shared structure in layouts to avoid duplication.
+    
+    ```go
+    app := fiber.New(fiber.Config{
+        ViewsLayout: "layouts/main",
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Enable reload in development">
+    Use template reloading during development for faster iteration.
+    
+    ```go
+    engine.Reload(true)  // Development only
+    ```
+  </Accordion>
+
+  <Accordion title="Organize templates by feature">
+    Group related templates in subdirectories.
+    
+    ```
+    views/
+    ├── users/
+    │   ├── list.html
+    │   └── profile.html
+    └── posts/
+        ├── list.html
+        └── detail.html
+    ```
+  </Accordion>
+
+  <Accordion title="Cache templates in production">
+    Disable reloading in production for better performance.
+    
+    ```go
+    engine.Reload(false)  // Production
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Context" icon="code" href="/concepts/context">
+    Render templates from handlers
+  </Card>
+  <Card title="Template Package" icon="box" href="https://github.com/gofiber/template">
+    Official template engines
+  </Card>
+  <Card title="Rendering" icon="paint-brush" href="/api/ctx#render">
+    c.Render() API reference
+  </Card>
+  <Card title="Static Files" icon="folder" href="/middleware/static">
+    Serve static assets
+  </Card>
+</CardGroup>

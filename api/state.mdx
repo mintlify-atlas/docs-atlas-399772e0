@@ -1,0 +1,384 @@
+---
+title: State
+description: Thread-safe global state management for Fiber applications
+---
+
+The State API provides a thread-safe key-value store for managing application-level dependencies and state in your Fiber app. It's built on top of `sync.Map` and allows you to store and retrieve values of any type.
+
+## Overview
+
+State is automatically created for each Fiber application and can be accessed via `app.State()`. It's particularly useful for:
+
+- Storing application-wide dependencies
+- Managing services (see [Services API](/api/services))
+- Sharing configuration across handlers
+- Implementing dependency injection patterns
+
+## Methods
+
+### Set
+
+Sets a key-value pair in the State.
+
+```go title="Signature"
+func (s *State) Set(key string, value any)
+```
+
+<ParamField path="key" type="string" required>
+  The key to store the value under
+</ParamField>
+
+<ParamField path="value" type="any" required>
+  The value to store (can be any type)
+</ParamField>
+
+```go title="Example"
+app.State().Set("database", db)
+app.State().Set("apiKey", "secret-key-123")
+app.State().Set("maxConnections", 100)
+```
+
+### Get
+
+Retrieves a value from the State.
+
+```go title="Signature"
+func (s *State) Get(key string) (any, bool)
+```
+
+<ParamField path="key" type="string" required>
+  The key to retrieve
+</ParamField>
+
+**Returns:** The value and a boolean indicating if the key was found.
+
+```go title="Example"
+if db, ok := app.State().Get("database"); ok {
+    // Use db
+    fmt.Println("Database found:", db)
+} else {
+    fmt.Println("Database not configured")
+}
+```
+
+### MustGet
+
+Retrieves a value from the State and panics if the key is not found.
+
+```go title="Signature"
+func (s *State) MustGet(key string) any
+```
+
+<ParamField path="key" type="string" required>
+  The key to retrieve
+</ParamField>
+
+**Returns:** The value associated with the key.
+
+**Panics:** If the key is not found.
+
+```go title="Example"
+db := app.State().MustGet("database")
+// Will panic if "database" key doesn't exist
+```
+
+### Has
+
+Checks if a key exists in the State.
+
+```go title="Signature"
+func (s *State) Has(key string) bool
+```
+
+<ParamField path="key" type="string" required>
+  The key to check
+</ParamField>
+
+**Returns:** `true` if the key exists, `false` otherwise.
+
+```go title="Example"
+if app.State().Has("database") {
+    fmt.Println("Database is configured")
+}
+```
+
+### Delete
+
+Removes a key-value pair from the State.
+
+```go title="Signature"
+func (s *State) Delete(key string)
+```
+
+<ParamField path="key" type="string" required>
+  The key to remove
+</ParamField>
+
+```go title="Example"
+app.State().Delete("tempData")
+```
+
+### Reset
+
+Resets the State by removing all keys.
+
+```go title="Signature"
+func (s *State) Reset()
+```
+
+```go title="Example"
+// Clear all state
+app.State().Reset()
+```
+
+### Keys
+
+Returns a slice containing all keys present in the State.
+
+```go title="Signature"
+func (s *State) Keys() []string
+```
+
+**Returns:** A slice of all keys in the State.
+
+```go title="Example"
+keys := app.State().Keys()
+for _, key := range keys {
+    fmt.Println("Key:", key)
+}
+```
+
+### Len
+
+Returns the number of keys in the State.
+
+```go title="Signature"
+func (s *State) Len() int
+```
+
+**Returns:** The number of key-value pairs in the State.
+
+```go title="Example"
+count := app.State().Len()
+fmt.Printf("State contains %d items\n", count)
+```
+
+## Type-Safe Getters
+
+The State API provides type-safe getter functions for common types:
+
+### GetString
+
+Retrieves a string value from the State.
+
+```go title="Signature"
+func (s *State) GetString(key string) (string, bool)
+```
+
+```go title="Example"
+if apiKey, ok := app.State().GetString("apiKey"); ok {
+    fmt.Println("API Key:", apiKey)
+}
+```
+
+### GetInt
+
+Retrieves an integer value from the State.
+
+```go title="Signature"
+func (s *State) GetInt(key string) (int, bool)
+```
+
+```go title="Example"
+if port, ok := app.State().GetInt("port"); ok {
+    fmt.Printf("Port: %d\n", port)
+}
+```
+
+### GetBool
+
+Retrieves a boolean value from the State.
+
+```go title="Signature"
+func (s *State) GetBool(key string) (value, ok bool)
+```
+
+```go title="Example"
+if enabled, ok := app.State().GetBool("debugMode"); ok && enabled {
+    fmt.Println("Debug mode is enabled")
+}
+```
+
+### GetFloat64
+
+Retrieves a float64 value from the State.
+
+```go title="Signature"
+func (s *State) GetFloat64(key string) (float64, bool)
+```
+
+### Numeric Type Getters
+
+Additional type-safe getters are available for:
+- `GetInt8`, `GetInt16`, `GetInt32`, `GetInt64`
+- `GetUint`, `GetUint8`, `GetUint16`, `GetUint32`, `GetUint64`, `GetUintptr`
+- `GetFloat32`
+- `GetComplex64`, `GetComplex128`
+
+## Generic Type Functions
+
+### GetState
+
+Retrieves a value from the State and casts it to the desired type using generics.
+
+```go title="Signature"
+func GetState[T any](s *State, key string) (T, bool)
+```
+
+<ParamField path="s" type="*State" required>
+  The State instance
+</ParamField>
+
+<ParamField path="key" type="string" required>
+  The key to retrieve
+</ParamField>
+
+**Returns:** The casted value and a boolean indicating success.
+
+```go title="Example"
+type Config struct {
+    Host string
+    Port int
+}
+
+app.State().Set("config", Config{Host: "localhost", Port: 3000})
+
+if config, ok := fiber.GetState[Config](app.State(), "config"); ok {
+    fmt.Printf("Host: %s, Port: %d\n", config.Host, config.Port)
+}
+```
+
+### MustGetState
+
+Retrieves a value from the State and casts it to the desired type. Panics if the key is not found or type assertion fails.
+
+```go title="Signature"
+func MustGetState[T any](s *State, key string) T
+```
+
+<ParamField path="s" type="*State" required>
+  The State instance
+</ParamField>
+
+<ParamField path="key" type="string" required>
+  The key to retrieve
+</ParamField>
+
+**Returns:** The casted value.
+
+**Panics:** If the key is not found or type assertion fails.
+
+```go title="Example"
+config := fiber.MustGetState[Config](app.State(), "config")
+fmt.Printf("Config: %+v\n", config)
+```
+
+### GetStateWithDefault
+
+Retrieves a value from the State, casting it to the desired type. Returns the provided default value if the key is not present.
+
+```go title="Signature"
+func GetStateWithDefault[T any](s *State, key string, defaultVal T) T
+```
+
+<ParamField path="s" type="*State" required>
+  The State instance
+</ParamField>
+
+<ParamField path="key" type="string" required>
+  The key to retrieve
+</ParamField>
+
+<ParamField path="defaultVal" type="T" required>
+  The default value to return if the key is not found
+</ParamField>
+
+**Returns:** The value or the default value.
+
+```go title="Example"
+maxRetries := fiber.GetStateWithDefault(app.State(), "maxRetries", 3)
+fmt.Printf("Max retries: %d\n", maxRetries)
+```
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "github.com/gofiber/fiber/v3"
+)
+
+type Database struct {
+    Host string
+    Port int
+}
+
+type Config struct {
+    AppName string
+    Version string
+}
+
+func main() {
+    app := fiber.New()
+
+    // Set various types in state
+    app.State().Set("config", Config{
+        AppName: "MyApp",
+        Version: "1.0.0",
+    })
+
+    app.State().Set("database", Database{
+        Host: "localhost",
+        Port: 5432,
+    })
+
+    app.State().Set("apiKey", "secret-key-123")
+    app.State().Set("debugMode", true)
+
+    app.Get("/info", func(c fiber.Ctx) error {
+        // Retrieve using type-safe generic function
+        config := fiber.MustGetState[Config](app.State(), "config")
+        
+        // Retrieve using built-in type helpers
+        apiKey, _ := app.State().GetString("apiKey")
+        debugMode, _ := app.State().GetBool("debugMode")
+
+        return c.JSON(fiber.Map{
+            "app":       config.AppName,
+            "version":   config.Version,
+            "debug":     debugMode,
+            "stateKeys": app.State().Keys(),
+            "stateSize": app.State().Len(),
+        })
+    })
+
+    app.Listen(":3000")
+}
+```
+
+## Thread Safety
+
+The State API is thread-safe and can be safely accessed from multiple goroutines concurrently. It uses `sync.Map` internally to provide concurrent access without explicit locking.
+
+```go title="Example"
+// Safe to call from multiple goroutines
+go func() {
+    app.State().Set("counter", 1)
+}()
+
+go func() {
+    count, _ := app.State().Get("counter")
+    fmt.Println(count)
+}()
+```

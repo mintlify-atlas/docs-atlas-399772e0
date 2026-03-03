@@ -1,0 +1,466 @@
+---
+title: Redirect
+description: Handle redirects with flash messages and form data in Fiber
+---
+
+The Redirect API provides a fluent interface for redirecting requests with support for flash messages and old input data. It's particularly useful for implementing the Post/Redirect/Get pattern and passing temporary data between requests.
+
+## Overview
+
+Access the Redirect API through `c.Redirect()` in your handlers. The API supports:
+
+- Status code customization
+- Flash messages with severity levels
+- Preserving form input after redirects
+- Redirecting to named routes
+- Referrer-based redirects
+
+## Methods
+
+### Status
+
+Sets the HTTP status code for the redirect. If not specified, defaults to `303 See Other`.
+
+```go title="Signature"
+func (r *Redirect) Status(code int) *Redirect
+```
+
+<ParamField path="code" type="int" required>
+  The HTTP status code (e.g., 301, 302, 303, 307, 308)
+</ParamField>
+
+**Returns:** The Redirect instance for method chaining.
+
+```go title="Example"
+// Permanent redirect
+return c.Redirect().Status(fiber.StatusMovedPermanently).To("/new-location")
+
+// Temporary redirect (default is 303)
+return c.Redirect().To("/login")
+```
+
+### With
+
+Adds a flash message that will be available on the next request.
+
+```go title="Signature"
+func (r *Redirect) With(key, value string, level ...uint8) *Redirect
+```
+
+<ParamField path="key" type="string" required>
+  The message key/identifier
+</ParamField>
+
+<ParamField path="value" type="string" required>
+  The message content
+</ParamField>
+
+<ParamField path="level" type="uint8" optional>
+  The severity level (0-255). Common conventions:
+  - 0: Info
+  - 1: Success
+  - 2: Warning
+  - 3: Error
+</ParamField>
+
+**Returns:** The Redirect instance for method chaining.
+
+**Note:** You must escape commas (`,`) and colons (`:`) in keys and values to avoid parsing issues.
+
+```go title="Example"
+return c.Redirect().
+    With("success", "User created successfully", 1).
+    With("info", "Check your email for verification", 0).
+    To("/dashboard")
+```
+
+### WithInput
+
+Preserves the current request's form data so it can be retrieved after redirect. Useful for re-populating forms after validation errors.
+
+```go title="Signature"
+func (r *Redirect) WithInput() *Redirect
+```
+
+**Returns:** The Redirect instance for method chaining.
+
+The method automatically detects the content type and preserves:
+- Form data (`application/x-www-form-urlencoded`)
+- Multipart form data (`multipart/form-data`)
+- Query parameters (other content types)
+
+```go title="Example"
+app.Post("/register", func(c fiber.Ctx) error {
+    username := c.FormValue("username")
+    email := c.FormValue("email")
+
+    // Validation failed
+    if username == "" {
+        return c.Redirect().
+            WithInput().
+            With("error", "Username is required", 3).
+            Back()
+    }
+
+    // Process registration...
+    return c.Redirect().To("/dashboard")
+})
+```
+
+### Messages
+
+Retrieves all flash messages from the current request and removes them.
+
+```go title="Signature"
+func (r *Redirect) Messages() []FlashMessage
+```
+
+**Returns:** A slice of `FlashMessage` structs.
+
+```go title="FlashMessage struct"
+type FlashMessage struct {
+    Key   string  // Message key
+    Value string  // Message content
+    Level uint8   // Severity level
+}
+```
+
+```go title="Example"
+app.Get("/dashboard", func(c fiber.Ctx) error {
+    messages := c.Redirect().Messages()
+    
+    for _, msg := range messages {
+        fmt.Printf("[Level %d] %s: %s\n", msg.Level, msg.Key, msg.Value)
+    }
+
+    return c.Render("dashboard", fiber.Map{
+        "messages": messages,
+    })
+})
+```
+
+### Message
+
+Retrieves a specific flash message by key and removes it.
+
+```go title="Signature"
+func (r *Redirect) Message(key string) FlashMessage
+```
+
+<ParamField path="key" type="string" required>
+  The message key to retrieve
+</ParamField>
+
+**Returns:** A `FlashMessage` struct (empty if not found).
+
+```go title="Example"
+app.Get("/dashboard", func(c fiber.Ctx) error {
+    successMsg := c.Redirect().Message("success")
+    
+    if successMsg.Value != "" {
+        fmt.Println("Success:", successMsg.Value)
+    }
+
+    return c.Render("dashboard", fiber.Map{
+        "success": successMsg.Value,
+    })
+})
+```
+
+### OldInputs
+
+Retrieves all preserved form data from the previous request.
+
+```go title="Signature"
+func (r *Redirect) OldInputs() []OldInputData
+```
+
+**Returns:** A slice of `OldInputData` structs.
+
+```go title="OldInputData struct"
+type OldInputData struct {
+    Key   string  // Form field name
+    Value string  // Form field value
+}
+```
+
+```go title="Example"
+app.Get("/register", func(c fiber.Ctx) error {
+    oldInputs := c.Redirect().OldInputs()
+    
+    // Convert to map for easier template access
+    inputMap := make(map[string]string)
+    for _, input := range oldInputs {
+        inputMap[input.Key] = input.Value
+    }
+
+    return c.Render("register", fiber.Map{
+        "old": inputMap,
+    })
+})
+```
+
+### OldInput
+
+Retrieves a specific old input value by key.
+
+```go title="Signature"
+func (r *Redirect) OldInput(key string) OldInputData
+```
+
+<ParamField path="key" type="string" required>
+  The form field name
+</ParamField>
+
+**Returns:** An `OldInputData` struct (empty if not found).
+
+```go title="Example"
+app.Get("/register", func(c fiber.Ctx) error {
+    username := c.Redirect().OldInput("username")
+    email := c.Redirect().OldInput("email")
+
+    return c.Render("register", fiber.Map{
+        "username": username.Value,
+        "email":    email.Value,
+    })
+})
+```
+
+### To
+
+Performs the redirect to the specified URL.
+
+```go title="Signature"
+func (r *Redirect) To(location string) error
+```
+
+<ParamField path="location" type="string" required>
+  The URL to redirect to (relative or absolute)
+</ParamField>
+
+**Returns:** An error (always nil in current implementation).
+
+```go title="Example"
+// Relative path
+return c.Redirect().To("/dashboard")
+
+// Absolute path
+return c.Redirect().To("/users/profile")
+
+// External URL
+return c.Redirect().To("https://example.com")
+```
+
+### Route
+
+Redirects to a named route with optional parameters and query strings.
+
+```go title="Signature"
+func (r *Redirect) Route(name string, config ...RedirectConfig) error
+```
+
+<ParamField path="name" type="string" required>
+  The name of the route
+</ParamField>
+
+<ParamField path="config" type="RedirectConfig" optional>
+  Configuration for route parameters and queries
+</ParamField>
+
+```go title="RedirectConfig struct"
+type RedirectConfig struct {
+    Params  fiber.Map           // Route parameters
+    Queries map[string]string   // Query parameters
+}
+```
+
+**Returns:** An error if the route is not found.
+
+```go title="Example"
+// Define named route
+app.Get("/users/:id", func(c fiber.Ctx) error {
+    return c.SendString("User profile")
+}).Name("user.profile")
+
+// Redirect to named route
+app.Post("/users", func(c fiber.Ctx) error {
+    // Create user...
+    userID := "123"
+
+    return c.Redirect().Route("user.profile", fiber.RedirectConfig{
+        Params: fiber.Map{
+            "id": userID,
+        },
+        Queries: map[string]string{
+            "welcome": "true",
+        },
+    })
+    // Redirects to: /users/123?welcome=true
+})
+```
+
+### Back
+
+Redirects back to the referrer URL. If no referrer is available, uses the fallback URL.
+
+```go title="Signature"
+func (r *Redirect) Back(fallback ...string) error
+```
+
+<ParamField path="fallback" type="string" optional>
+  The fallback URL if no referrer is present
+</ParamField>
+
+**Returns:** An error if no referrer and no fallback is provided.
+
+```go title="Example"
+// Redirect back to previous page
+return c.Redirect().Back()
+
+// Redirect back with fallback
+return c.Redirect().Back("/")
+
+// With flash message
+return c.Redirect().
+    With("error", "Access denied", 3).
+    Back("/login")
+```
+
+## Complete Examples
+
+### Post/Redirect/Get Pattern
+
+```go
+package main
+
+import (
+    "github.com/gofiber/fiber/v3"
+)
+
+func main() {
+    app := fiber.New()
+
+    // Show registration form
+    app.Get("/register", func(c fiber.Ctx) error {
+        // Get flash messages
+        errorMsg := c.Redirect().Message("error")
+        successMsg := c.Redirect().Message("success")
+
+        // Get old input values
+        username := c.Redirect().OldInput("username")
+        email := c.Redirect().OldInput("email")
+
+        return c.Render("register", fiber.Map{
+            "error":    errorMsg.Value,
+            "success":  successMsg.Value,
+            "username": username.Value,
+            "email":    email.Value,
+        })
+    })
+
+    // Handle registration
+    app.Post("/register", func(c fiber.Ctx) error {
+        username := c.FormValue("username")
+        email := c.FormValue("email")
+        password := c.FormValue("password")
+
+        // Validation
+        if username == "" || email == "" || password == "" {
+            return c.Redirect().
+                WithInput().
+                With("error", "All fields are required", 3).
+                Back("/register")
+        }
+
+        // Additional validation
+        if len(password) < 8 {
+            return c.Redirect().
+                WithInput().
+                With("error", "Password must be at least 8 characters", 3).
+                Back("/register")
+        }
+
+        // Process registration (save to database, etc.)
+        // ...
+
+        return c.Redirect().
+            With("success", "Registration successful! Please login.", 1).
+            To("/login")
+    })
+
+    app.Listen(":3000")
+}
+```
+
+### Multi-Level Flash Messages
+
+```go
+app.Post("/process", func(c fiber.Ctx) error {
+    // Send multiple messages with different levels
+    return c.Redirect().
+        With("info", "Processing started", 0).
+        With("success", "Data validated successfully", 1).
+        With("warning", "Some optional fields were empty", 2).
+        To("/results")
+})
+
+app.Get("/results", func(c fiber.Ctx) error {
+    messages := c.Redirect().Messages()
+    
+    // Group messages by level
+    var info, success, warning, errors []string
+    
+    for _, msg := range messages {
+        switch msg.Level {
+        case 0:
+            info = append(info, msg.Value)
+        case 1:
+            success = append(success, msg.Value)
+        case 2:
+            warning = append(warning, msg.Value)
+        case 3:
+            errors = append(errors, msg.Value)
+        }
+    }
+
+    return c.Render("results", fiber.Map{
+        "info":    info,
+        "success": success,
+        "warning": warning,
+        "errors":  errors,
+    })
+})
+```
+
+### Named Routes with Parameters
+
+```go
+app.Get("/posts/:id/edit", func(c fiber.Ctx) error {
+    return c.SendString("Edit post")
+}).Name("posts.edit")
+
+app.Post("/posts/:id", func(c fiber.Ctx) error {
+    id := c.Params("id")
+    
+    // Update post...
+
+    return c.Redirect().
+        Status(fiber.StatusSeeOther).
+        With("success", "Post updated successfully", 1).
+        Route("posts.edit", fiber.RedirectConfig{
+            Params: fiber.Map{"id": id},
+        })
+})
+```
+
+## Important Notes
+
+1. **Cookie Storage**: Flash messages and old input are stored in cookies with the name `fiber_flash`. Cookie size is limited to ~4KB.
+
+2. **Auto-Cleanup**: Flash messages and old input are automatically removed after being read.
+
+3. **Special Characters**: Escape commas (`,`) and colons (`:`) in message keys and values to avoid parsing issues.
+
+4. **Default Status**: If no status is specified, redirects use `303 See Other` by default.
+
+5. **Session-Only Cookie**: The flash cookie is session-only and will be deleted when the browser closes.

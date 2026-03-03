@@ -1,0 +1,267 @@
+---
+title: Rewrite
+description: URL rewriting middleware for Fiber
+---
+
+Rewrite middleware for Fiber rewrites the URL path based on provided rules. Unlike redirect middleware, rewrite modifies the request path internally without sending a redirect response to the client.
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Usage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/rewrite"
+)
+```
+
+### Basic Usage
+
+```go
+app.Use(rewrite.New(rewrite.Config{
+    Rules: map[string]string{
+        "/old": "/new",
+    },
+}))
+```
+
+### Pattern Matching with Wildcards
+
+```go
+app.Use(rewrite.New(rewrite.Config{
+    Rules: map[string]string{
+        "/old":              "/new",
+        "/api/*":            "/$1",
+        "/js/*":             "/public/javascript/$1",
+        "/users/*/orders/*": "/user/$1/order/$2",
+    },
+}))
+```
+
+### API Versioning
+
+```go
+app.Use(rewrite.New(rewrite.Config{
+    Rules: map[string]string{
+        "/api/v1/*": "/v1/$1",
+        "/api/v2/*": "/v2/$1",
+    },
+}))
+
+// Requests to /api/v1/users internally route to /v1/users
+app.Get("/v1/:resource", v1Handler)
+app.Get("/v2/:resource", v2Handler)
+```
+
+### Skip Specific Paths
+
+```go
+app.Use(rewrite.New(rewrite.Config{
+    Next: func(c fiber.Ctx) bool {
+        // Skip rewriting for admin routes
+        return strings.HasPrefix(c.Path(), "/admin")
+    },
+    Rules: map[string]string{
+        "/old/*": "/new/$1",
+    },
+}))
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+Defines a function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="Rules" type="map[string]string" required>
+Defines the URL path rewrite rules. The values captured in asterisk wildcards can be retrieved by index e.g. `$1`, `$2` and so on.
+
+Example rules:
+- `"/old": "/new"` - Simple rewrite
+- `"/api/*": "/$1"` - Capture and reuse path
+- `"/js/*": "/public/javascript/$1"` - Add prefix
+- `"/users/*/orders/*": "/user/$1/order/$2"` - Multiple captures
+</ParamField>
+
+## Default Config
+
+The rewrite middleware does not have default configuration values. Rules must be explicitly provided.
+
+## Common Use Cases
+
+### Clean URLs
+
+```go
+app.Use(rewrite.New(rewrite.Config{
+    Rules: map[string]string{
+        "/products/:id": "/p/:id",
+        "/categories/:name": "/c/:name",
+    },
+}))
+
+// Users see: /products/123
+// Internally routes to: /p/123
+app.Get("/p/:id", productHandler)
+```
+
+### Static File Organization
+
+```go
+app.Use(rewrite.New(rewrite.Config{
+    Rules: map[string]string{
+        "/static/js/*":  "/assets/javascript/$1",
+        "/static/css/*": "/assets/stylesheets/$1",
+        "/static/img/*": "/assets/images/$1",
+    },
+}))
+
+app.Static("/assets", "./public")
+```
+
+### Multi-Tenancy
+
+```go
+app.Use(rewrite.New(rewrite.Config{
+    Rules: map[string]string{
+        "/:tenant/api/*": "/api/$1",
+    },
+}))
+
+app.Use(func(c fiber.Ctx) error {
+    tenant := c.Params("tenant")
+    c.Locals("tenant", tenant)
+    return c.Next()
+})
+
+app.Get("/api/users", func(c fiber.Ctx) error {
+    tenant := c.Locals("tenant").(string)
+    // Handle request for specific tenant
+    return c.JSON(users)
+})
+```
+
+### Backward Compatibility
+
+```go
+app.Use(rewrite.New(rewrite.Config{
+    Rules: map[string]string{
+        "/legacy/user/*":    "/api/v2/users/$1",
+        "/legacy/product/*": "/api/v2/products/$1",
+    },
+}))
+
+// Old URLs still work, internally using new routes
+app.Get("/api/v2/users/:id", userHandler)
+```
+
+### Language Routing
+
+```go
+app.Use(rewrite.New(rewrite.Config{
+    Rules: map[string]string{
+        "/en/*": "/$1",
+        "/es/*": "/$1",
+        "/fr/*": "/$1",
+    },
+}))
+
+app.Use(func(c fiber.Ctx) error {
+    // Extract language from original path
+    path := c.OriginalURL()
+    if strings.HasPrefix(path, "/en") {
+        c.Locals("lang", "en")
+    } else if strings.HasPrefix(path, "/es") {
+        c.Locals("lang", "es")
+    }
+    return c.Next()
+})
+```
+
+### Microservice Routing
+
+```go
+app.Use(rewrite.New(rewrite.Config{
+    Rules: map[string]string{
+        "/api/users/*":    "/users-service/$1",
+        "/api/products/*": "/products-service/$1",
+        "/api/orders/*":   "/orders-service/$1",
+    },
+}))
+
+// Route to different service handlers
+app.All("/users-service/*", proxyToUsersService)
+app.All("/products-service/*", proxyToProductsService)
+```
+
+## Best Practices
+
+### Order Matters
+
+```go
+// More specific rules should be defined first
+app.Use(rewrite.New(rewrite.Config{
+    Rules: map[string]string{
+        "/api/v2/admin/*": "/admin/v2/$1",  // Specific
+        "/api/v2/*":       "/v2/$1",        // General
+    },
+}))
+```
+
+### Use with Router Groups
+
+```go
+app.Use(rewrite.New(rewrite.Config{
+    Rules: map[string]string{
+        "/api/*": "/$1",
+    },
+}))
+
+api := app.Group("/")
+api.Get("/users", getUsers)      // Accessed via /api/users
+api.Post("/users", createUser)   // Accessed via /api/users
+```
+
+### Combine with Other Middleware
+
+```go
+// Rewrite must come before route registration
+app.Use(rewrite.New(rewrite.Config{
+    Rules: map[string]string{
+        "/v1/*": "/api/v1/$1",
+    },
+}))
+
+// Other middleware after rewrite
+app.Use(logger.New())
+app.Use(cors.New())
+```
+
+### Testing Rewrite Rules
+
+```go
+app.Use(rewrite.New(rewrite.Config{
+    Rules: map[string]string{
+        "/test/*": "/actual/$1",
+    },
+}))
+
+app.Get("/actual/:path", func(c fiber.Ctx) error {
+    return c.SendString("Path: " + c.Params("path"))
+})
+
+// Test: GET /test/hello -> "Path: hello"
+```
+
+## Notes
+
+- Rewrite happens internally - the client is not aware of the URL change
+- Wildcards (`*`) in rules capture path segments that can be referenced as `$1`, `$2`, etc.
+- Rewrite modifies `c.Path()` but `c.OriginalURL()` remains unchanged
+- The middleware uses regular expressions internally for pattern matching
+- Query parameters and fragments are preserved during rewriting
+- Use rewrite for internal routing logic; use redirect for external URL changes

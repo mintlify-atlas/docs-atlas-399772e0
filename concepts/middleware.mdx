@@ -1,0 +1,475 @@
+---
+title: Middleware
+description: Learn how middleware works in Fiber, including execution flow, c.Next(), and creating custom middleware.
+---
+
+Middleware functions are functions that have access to the request context and execute sequentially in a chain. They can modify the request, perform authentication, log data, or terminate the request early.
+
+## How Middleware Works
+
+Middleware executes in the order it's registered, forming a chain where each middleware can:
+- Execute code before the route handler
+- Call `c.Next()` to pass control to the next middleware/handler
+- Execute code after the next handler returns
+- Terminate the request early without calling `c.Next()`
+
+```go
+app := fiber.New()
+
+// Middleware 1
+app.Use(func(c fiber.Ctx) error {
+    fmt.Println("Before request")
+    
+    // Pass control to next middleware
+    err := c.Next()
+    
+    fmt.Println("After request")
+    return err
+})
+
+// Route handler
+app.Get("/", func(c fiber.Ctx) error {
+    fmt.Println("Handler")
+    return c.SendString("Hello")
+})
+
+// Output order:
+// Before request
+// Handler
+// After request
+```
+
+## The Next() Function
+
+The `c.Next()` function passes control to the next middleware or route handler in the stack:
+
+```go
+app.Use(func(c fiber.Ctx) error {
+    fmt.Println("Middleware 1 - Before")
+    
+    // Execute next middleware/handler
+    if err := c.Next(); err != nil {
+        return err
+    }
+    
+    fmt.Println("Middleware 1 - After")
+    return nil
+})
+
+app.Use(func(c fiber.Ctx) error {
+    fmt.Println("Middleware 2")
+    return c.Next()
+})
+
+app.Get("/", func(c fiber.Ctx) error {
+    fmt.Println("Route Handler")
+    return c.SendString("Response")
+})
+
+// Output:
+// Middleware 1 - Before
+// Middleware 2
+// Route Handler
+// Middleware 1 - After
+```
+
+### Without Next()
+
+If you don't call `c.Next()`, the request terminates and subsequent middleware/handlers don't execute:
+
+```go
+app.Use(func(c fiber.Ctx) error {
+    // Check authentication
+    if c.Get("Authorization") == "" {
+        return c.Status(401).SendString("Unauthorized")
+        // c.Next() is NOT called - request ends here
+    }
+    return c.Next()
+})
+
+app.Get("/protected", func(c fiber.Ctx) error {
+    // Only executes if authentication passes
+    return c.SendString("Secret data")
+})
+```
+
+## Global Middleware
+
+Global middleware applies to all routes:
+
+```go
+app := fiber.New()
+
+// Applies to all routes
+app.Use(func(c fiber.Ctx) error {
+    fmt.Println("Global middleware")
+    return c.Next()
+})
+
+app.Get("/users", userHandler)
+app.Get("/posts", postHandler)
+// Both routes execute the global middleware
+```
+
+## Path-Specific Middleware
+
+Apply middleware to specific paths or path prefixes:
+
+```go
+// Middleware for /api/* routes only
+app.Use("/api", func(c fiber.Ctx) error {
+    fmt.Println("API middleware")
+    return c.Next()
+})
+
+app.Get("/api/users", userHandler)   // Executes middleware
+app.Get("/about", aboutHandler)      // Does NOT execute middleware
+```
+
+### Multiple Paths
+
+Apply middleware to multiple specific paths:
+
+```go
+app.Use([]string{"/api", "/admin"}, func(c fiber.Ctx) error {
+    fmt.Println("Protected routes")
+    return c.Next()
+})
+```
+
+## Route-Level Middleware
+
+Attach middleware directly to specific routes:
+
+```go
+func authMiddleware(c fiber.Ctx) error {
+    if c.Get("Authorization") == "" {
+        return c.Status(401).SendString("Unauthorized")
+    }
+    return c.Next()
+}
+
+// Multiple handlers - executed in order
+app.Get("/protected", authMiddleware, func(c fiber.Ctx) error {
+    return c.SendString("Protected resource")
+})
+
+// Chain multiple middleware
+app.Post("/users",
+    validateInput,
+    checkPermissions,
+    createUserHandler,
+)
+```
+
+## Middleware Execution Order
+
+Middleware executes in this order:
+1. Global middleware (registered with `app.Use()`)
+2. Group middleware (registered on route groups)
+3. Route-level middleware (passed to route methods)
+4. Route handler
+
+```go
+app.Use(func(c fiber.Ctx) error {
+    fmt.Println("1. Global")
+    return c.Next()
+})
+
+api := app.Group("/api", func(c fiber.Ctx) error {
+    fmt.Println("2. Group")
+    return c.Next()
+})
+
+api.Get("/users",
+    func(c fiber.Ctx) error {
+        fmt.Println("3. Route middleware")
+        return c.Next()
+    },
+    func(c fiber.Ctx) error {
+        fmt.Println("4. Handler")
+        return c.SendString("Response")
+    },
+)
+
+// Request to /api/users outputs:
+// 1. Global
+// 2. Group
+// 3. Route middleware
+// 4. Handler
+```
+
+## Creating Custom Middleware
+
+### Basic Middleware
+
+```go
+func Logger() fiber.Handler {
+    return func(c fiber.Ctx) error {
+        start := time.Now()
+        
+        // Process request
+        err := c.Next()
+        
+        // Log after response
+        fmt.Printf("%s %s - %v\n",
+            c.Method(),
+            c.Path(),
+            time.Since(start),
+        )
+        
+        return err
+    }
+}
+
+app.Use(Logger())
+```
+
+### Configurable Middleware
+
+```go
+type RateLimiterConfig struct {
+    Max      int
+    Duration time.Duration
+}
+
+func RateLimiter(config RateLimiterConfig) fiber.Handler {
+    // Initialize state
+    requests := make(map[string]int)
+    
+    return func(c fiber.Ctx) error {
+        ip := c.IP()
+        
+        // Check rate limit
+        if requests[ip] >= config.Max {
+            return c.Status(429).SendString("Too many requests")
+        }
+        
+        requests[ip]++
+        
+        // Reset after duration
+        time.AfterFunc(config.Duration, func() {
+            requests[ip] = 0
+        })
+        
+        return c.Next()
+    }
+}
+
+app.Use(RateLimiter(RateLimiterConfig{
+    Max:      100,
+    Duration: time.Minute,
+}))
+```
+
+## Common Middleware Patterns
+
+### Authentication
+
+```go
+func RequireAuth(c fiber.Ctx) error {
+    token := c.Get("Authorization")
+    
+    if token == "" {
+        return fiber.NewError(fiber.StatusUnauthorized, "Missing token")
+    }
+    
+    // Validate token
+    user, err := validateToken(token)
+    if err != nil {
+        return fiber.NewError(fiber.StatusUnauthorized, "Invalid token")
+    }
+    
+    // Store user in context
+    c.Locals("user", user)
+    
+    return c.Next()
+}
+```
+
+### CORS
+
+```go
+func CORS(c fiber.Ctx) error {
+    c.Set("Access-Control-Allow-Origin", "*")
+    c.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")
+    c.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+    
+    // Handle preflight
+    if c.Method() == "OPTIONS" {
+        return c.SendStatus(fiber.StatusNoContent)
+    }
+    
+    return c.Next()
+}
+
+app.Use(CORS)
+```
+
+### Request Validation
+
+```go
+func ValidateJSON(c fiber.Ctx) error {
+    if c.Get("Content-Type") != "application/json" {
+        return fiber.NewError(fiber.StatusBadRequest, "Content-Type must be application/json")
+    }
+    return c.Next()
+}
+
+app.Post("/api/users", ValidateJSON, createUser)
+```
+
+### Response Timing
+
+```go
+func Timing(c fiber.Ctx) error {
+    start := time.Now()
+    
+    err := c.Next()
+    
+    duration := time.Since(start)
+    c.Set("X-Response-Time", duration.String())
+    
+    return err
+}
+
+app.Use(Timing)
+```
+
+## Error Handling in Middleware
+
+Return errors from middleware to trigger the error handler:
+
+```go
+app.Use(func(c fiber.Ctx) error {
+    if someCondition {
+        // Return error - stops execution
+        return fiber.NewError(fiber.StatusBadRequest, "Invalid request")
+    }
+    return c.Next()
+})
+
+// Custom error handler
+app := fiber.New(fiber.Config{
+    ErrorHandler: func(c fiber.Ctx, err error) error {
+        code := fiber.StatusInternalServerError
+        
+        if e, ok := err.(*fiber.Error); ok {
+            code = e.Code
+        }
+        
+        return c.Status(code).JSON(fiber.Map{
+            "error": err.Error(),
+        })
+    },
+})
+```
+
+## RestartRouting
+
+Restart routing from the beginning after modifying the path:
+
+```go
+app.Use(func(c fiber.Ctx) error {
+    // Rewrite path
+    if c.Path() == "/old-path" {
+        c.Path("/new-path")
+        return c.RestartRouting()
+    }
+    return c.Next()
+})
+
+app.Get("/new-path", handler)
+```
+
+## Built-in Middleware
+
+Fiber provides many built-in middleware packages:
+
+<CardGroup cols={2}>
+  <Card title="Logger" icon="file-lines">
+    HTTP request/response logging
+  </Card>
+  <Card title="Recover" icon="life-ring">
+    Recover from panics
+  </Card>
+  <Card title="CORS" icon="globe">
+    Cross-Origin Resource Sharing
+  </Card>
+  <Card title="Compress" icon="file-zipper">
+    Response compression
+  </Card>
+  <Card title="Limiter" icon="gauge-high">
+    Rate limiting
+  </Card>
+  <Card title="Timeout" icon="clock">
+    Request timeout handling
+  </Card>
+  <Card title="CSRF" icon="shield">
+    CSRF protection
+  </Card>
+  <Card title="Session" icon="key">
+    Session management
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always handle Next() errors">
+    Check and return errors from `c.Next()` to ensure proper error propagation.
+    
+    ```go
+    if err := c.Next(); err != nil {
+        return err
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Keep middleware focused">
+    Each middleware should have a single responsibility for maintainability.
+    
+    ```go
+    // Good: Separate concerns
+    app.Use(LoggingMiddleware)
+    app.Use(AuthMiddleware)
+    app.Use(RateLimitMiddleware)
+    ```
+  </Accordion>
+
+  <Accordion title="Use Locals for request-scoped data">
+    Store data for the current request using `c.Locals()`.
+    
+    ```go
+    c.Locals("user", user)
+    // Later: user := c.Locals("user")
+    ```
+  </Accordion>
+
+  <Accordion title="Order matters">
+    Register middleware in the correct order - authentication before authorization, logging before everything.
+    
+    ```go
+    app.Use(LoggerMiddleware)    // First
+    app.Use(RecoverMiddleware)   // Second
+    app.Use(AuthMiddleware)      // Third
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Context" icon="code" href="/concepts/context">
+    Work with request and response data
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/concepts/error-handling">
+    Handle errors in middleware
+  </Card>
+  <Card title="Grouping" icon="layer-group" href="/concepts/grouping">
+    Apply middleware to route groups
+  </Card>
+  <Card title="Routing" icon="route" href="/concepts/routing">
+    Define routes and handlers
+  </Card>
+</CardGroup>

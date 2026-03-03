@@ -1,0 +1,181 @@
+---
+title: Basic Auth
+description: HTTP Basic Authentication middleware for Fiber
+---
+
+Basic Authentication middleware for Fiber that provides HTTP basic auth. It calls the next handler for valid credentials and returns `401 Unauthorized` for missing or invalid credentials, `400 Bad Request` for malformed `Authorization` headers, or `431 Request Header Fields Too Large` when the header exceeds size limits.
+
+The default unauthorized response includes the header `WWW-Authenticate: Basic realm="Restricted", charset="UTF-8"`, sets `Cache-Control: no-store`, and adds a `Vary: Authorization` header. Only the `UTF-8` charset is supported.
+
+## Signatures
+
+```go
+func New(config Config) fiber.Handler
+func UsernameFromContext(ctx any) string
+```
+
+`UsernameFromContext` accepts a `fiber.CustomCtx`, `fiber.Ctx`, a `*fasthttp.RequestCtx`, or a `context.Context`.
+
+## Usage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/basicauth"
+)
+```
+
+### Basic Example
+
+```go
+// Provide a minimal config
+app.Use(basicauth.New(basicauth.Config{
+    Users: map[string]string{
+        // "doe" hashed using SHA-256
+        "john":  "{SHA256}eZ75KhGvkY4/t0HfQpNPO1aO0tk6wd908bjUGieTKm8=",
+        // "123456" hashed using bcrypt
+        "admin": "$2a$10$gTYwCN66/tBRoCr3.TXa1.v1iyvwIF7GRBqxzv7G.AHLMt/owXrp.",
+    },
+}))
+```
+
+### Custom Configuration
+
+```go
+app.Use(basicauth.New(basicauth.Config{
+    Users: map[string]string{
+        "john":  "{SHA256}eZ75KhGvkY4/t0HfQpNPO1aO0tk6wd908bjUGieTKm8=",
+        "admin": "$2a$10$gTYwCN66/tBRoCr3.TXa1.v1iyvwIF7GRBqxzv7G.AHLMt/owXrp.",
+    },
+    Realm: "Forbidden",
+    Authorizer: func(user, pass string, c fiber.Ctx) bool {
+        return (user == "john" || user == "admin")
+    },
+    Unauthorized: func(c fiber.Ctx) error {
+        return c.SendFile("./unauthorized.html")
+    },
+}))
+```
+
+## Password Hashes
+
+Passwords must be supplied in pre-hashed form. The middleware detects the hashing algorithm from a prefix:
+
+- `"{SHA512}"` or `"{SHA256}"` followed by a base64-encoded digest
+- Standard bcrypt strings beginning with `$2`
+
+If no prefix is present, the value is interpreted as a SHA-256 digest encoded in hex or base64.
+
+### Generating SHA-256 and SHA-512 Passwords
+
+Create a digest, encode it in base64, and prefix it:
+
+```bash
+# SHA-256
+printf 'secret' | openssl dgst -binary -sha256 | base64
+
+# SHA-512
+printf 'secret' | openssl dgst -binary -sha512 | base64
+```
+
+Include the prefix in your config:
+
+```go
+Users: map[string]string{
+    "john":  "{SHA256}K7gNU3sdo+OL0wNhqoVWhr3g6s1xYv72ol/pe/Unols=",
+    "admin": "{SHA512}vSsar3708Jvp9Szi2NWZZ02Bqp1qRCFpbcTZPdBhnWgs5WtNZKnvCXdhztmeD2cmW192CF5bDufKRpayrW/isg==",
+}
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+Defines a function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="Users" type="map[string]string" default="map[string]string{}">
+Maps usernames to **hashed** passwords (e.g. bcrypt, `{SHA256}`). Required.
+</ParamField>
+
+<ParamField path="Realm" type="string" default={`Restricted`}>
+Defines the realm attribute of BasicAuth. The realm identifies the system to authenticate against and can be used by clients to save credentials.
+</ParamField>
+
+<ParamField path="Charset" type="string" default={`UTF-8`}>
+Charset sent in the `WWW-Authenticate` header. Only `"UTF-8"` is supported (case-insensitive).
+</ParamField>
+
+<ParamField path="HeaderLimit" type="int" default="8192">
+Maximum allowed length of the `Authorization` header. Requests exceeding this limit are rejected.
+</ParamField>
+
+<ParamField path="Authorizer" type="func(string, string, fiber.Ctx) bool" default="nil">
+Defines a function to check the credentials. Called with a username, password, and the current context. Return true to approve or false to deny.
+</ParamField>
+
+<ParamField path="Unauthorized" type="fiber.Handler" default="nil">
+Defines the response body for unauthorized responses.
+</ParamField>
+
+<ParamField path="BadRequest" type="fiber.Handler" default="nil">
+Defines the response for malformed `Authorization` headers.
+</ParamField>
+
+## Default Config
+
+```go
+var ConfigDefault = Config{
+    Next:            nil,
+    Users:           map[string]string{},
+    Realm:           "Restricted",
+    Charset:         "UTF-8",
+    HeaderLimit:     8192,
+    Authorizer:      nil,
+    Unauthorized:    nil,
+    BadRequest:      nil,
+}
+```
+
+## Common Use Cases
+
+### Protecting Admin Routes
+
+```go
+admin := app.Group("/admin")
+admin.Use(basicauth.New(basicauth.Config{
+    Users: map[string]string{
+        "admin": "{SHA256}hashed_password_here",
+    },
+}))
+
+admin.Get("/dashboard", dashboardHandler)
+```
+
+### Custom Authorization Logic
+
+```go
+app.Use(basicauth.New(basicauth.Config{
+    Users: map[string]string{
+        "user1": "{SHA256}hash1",
+        "user2": "{SHA256}hash2",
+    },
+    Authorizer: func(user, pass string, c fiber.Ctx) bool {
+        // Custom logic: only allow admin from specific IP
+        if user == "admin" {
+            return c.IP() == "192.168.1.1"
+        }
+        return true
+    },
+}))
+```
+
+### Retrieving Authenticated Username
+
+```go
+app.Get("/profile", func(c fiber.Ctx) error {
+    username := basicauth.UsernameFromContext(c)
+    return c.JSON(fiber.Map{
+        "user": username,
+    })
+})
+```

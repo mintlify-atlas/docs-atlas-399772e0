@@ -1,0 +1,325 @@
+---
+title: Request Validation
+description: Learn how to validate request data in Fiber using struct validators and binding
+---
+
+## Overview
+
+Fiber provides powerful request validation through its binding system. By implementing a `StructValidator`, you can automatically validate incoming data from JSON, forms, query parameters, and more.
+
+## Setting Up Validation
+
+### Implementing a Validator
+
+Fiber requires you to implement the `StructValidator` interface:
+
+```go
+type StructValidator interface {
+    Validate(out any) error
+}
+```
+
+### Using go-playground/validator
+
+The most popular choice is `go-playground/validator`:
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/go-playground/validator/v10"
+)
+
+type structValidator struct {
+    validate *validator.Validate
+}
+
+func (v *structValidator) Validate(out any) error {
+    return v.validate.Struct(out)
+}
+
+func main() {
+    app := fiber.New(fiber.Config{
+        StructValidator: &structValidator{
+            validate: validator.New(),
+        },
+    })
+}
+```
+
+## Validation Binding Methods
+
+Validation works with all binding methods. The validator runs automatically after successful binding:
+
+<CodeGroup>
+
+```go JSON Body
+type User struct {
+    Name  string `json:"name" validate:"required,min=3,max=32"`
+    Email string `json:"email" validate:"required,email"`
+    Age   int    `json:"age" validate:"gte=0,lte=120"`
+}
+
+app.Post("/users", func(c fiber.Ctx) error {
+    user := new(User)
+    if err := c.Bind().Body(user); err != nil {
+        return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+    }
+    return c.JSON(user)
+})
+```
+
+```go Query Parameters
+type SearchQuery struct {
+    Query string `query:"q" validate:"required,min=2"`
+    Page  int    `query:"page" validate:"gte=1"`
+    Limit int    `query:"limit" validate:"gte=1,lte=100"`
+}
+
+app.Get("/search", func(c fiber.Ctx) error {
+    query := new(SearchQuery)
+    if err := c.Bind().Query(query); err != nil {
+        return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+    }
+    // Perform search with validated parameters
+    return c.JSON(fiber.Map{"results": []string{}})
+})
+```
+
+```go Form Data
+type LoginForm struct {
+    Username string `form:"username" validate:"required,alphanum"`
+    Password string `form:"password" validate:"required,min=8"`
+}
+
+app.Post("/login", func(c fiber.Ctx) error {
+    form := new(LoginForm)
+    if err := c.Bind().Form(form); err != nil {
+        return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+    }
+    // Authenticate user
+    return c.JSON(fiber.Map{"success": true})
+})
+```
+
+```go URI Parameters
+type UserParams struct {
+    UserID string `uri:"userId" validate:"required,uuid"`
+}
+
+app.Get("/users/:userId", func(c fiber.Ctx) error {
+    params := new(UserParams)
+    if err := c.Bind().URI(params); err != nil {
+        return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+    }
+    // Fetch user by validated UUID
+    return c.JSON(fiber.Map{"userId": params.UserID})
+})
+```
+
+</CodeGroup>
+
+## Error Handling
+
+### Understanding BindError
+
+Fiber wraps binding failures in `BindError` with source tracking:
+
+```go
+type BindError struct {
+    Err    error  // underlying error
+    Source string // binding source: uri, query, body, header, cookie
+    Field  string // struct field that failed
+}
+```
+
+### Manual Error Handling
+
+By default, binding returns `BindError` for manual handling:
+
+```go
+app.Post("/users", func(c fiber.Ctx) error {
+    user := new(User)
+    
+    if err := c.Bind().Body(user); err != nil {
+        var bindErr *fiber.BindError
+        if errors.As(err, &bindErr) {
+            // Handle based on source
+            switch bindErr.Source {
+            case fiber.BindSourceBody:
+                return c.Status(400).JSON(fiber.Map{
+                    "error": "Invalid request body",
+                    "field": bindErr.Field,
+                })
+            case fiber.BindSourceQuery:
+                return c.Status(400).JSON(fiber.Map{
+                    "error": "Invalid query parameter",
+                    "field": bindErr.Field,
+                })
+            }
+        }
+        return err
+    }
+    
+    return c.JSON(user)
+})
+```
+
+### Automatic Error Handling
+
+Use `WithAutoHandling()` to automatically set HTTP 400 on errors:
+
+```go
+app.Post("/users", func(c fiber.Ctx) error {
+    user := new(User)
+    
+    // Automatically sets status 400 on validation errors
+    if err := c.Bind().WithAutoHandling().Body(user); err != nil {
+        return err // Status already set to 400
+    }
+    
+    return c.JSON(user)
+})
+```
+
+## Advanced Validation
+
+### Skipping Validation
+
+You can skip validation when needed:
+
+```go
+app.Post("/raw", func(c fiber.Ctx) error {
+    user := new(User)
+    
+    // Skip validation for this request
+    if err := c.Bind().SkipValidation(true).Body(user); err != nil {
+        return err
+    }
+    
+    return c.JSON(user)
+})
+```
+
+### Custom Validators
+
+Implement custom validation logic:
+
+```go
+type PasswordValidator struct {
+    validate *validator.Validate
+}
+
+func (v *PasswordValidator) Validate(out any) error {
+    // Run standard validation first
+    if err := v.validate.Struct(out); err != nil {
+        return err
+    }
+    
+    // Add custom validation
+    if user, ok := out.(*User); ok {
+        if !isStrongPassword(user.Password) {
+            return errors.New("password must contain uppercase, lowercase, number, and special character")
+        }
+    }
+    
+    return nil
+}
+
+func isStrongPassword(pwd string) bool {
+    // Custom password strength logic
+    return len(pwd) >= 12 // Simplified example
+}
+```
+
+### Validation Tags
+
+Common validation tags from `go-playground/validator`:
+
+```go
+type Product struct {
+    // Required fields
+    Name string `json:"name" validate:"required"`
+    
+    // Length validation
+    Description string `json:"description" validate:"min=10,max=500"`
+    
+    // Numeric ranges
+    Price    float64 `json:"price" validate:"gt=0"`
+    Quantity int     `json:"quantity" validate:"gte=0,lte=10000"`
+    
+    // Format validation
+    Email   string `json:"email" validate:"required,email"`
+    URL     string `json:"url" validate:"omitempty,url"`
+    
+    // Enumeration
+    Status string `json:"status" validate:"oneof=active inactive pending"`
+    
+    // Cross-field validation
+    Password        string `json:"password" validate:"required,min=8"`
+    PasswordConfirm string `json:"password_confirm" validate:"required,eqfield=Password"`
+}
+```
+
+## Binding from Multiple Sources
+
+The `All()` method binds from multiple sources with precedence:
+
+```go
+type RequestData struct {
+    // Can come from URL params, body, query, headers, or cookies
+    UserID   string `uri:"userId" query:"user_id" validate:"required"`
+    Token    string `header:"Authorization" cookie:"token"`
+    Page     int    `query:"page" validate:"gte=1"`
+}
+
+app.Get("/data/:userId", func(c fiber.Ctx) error {
+    data := new(RequestData)
+    
+    // Binds in order: URI -> Body -> Query -> Headers -> Cookies
+    if err := c.Bind().All(data); err != nil {
+        return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+    }
+    
+    return c.JSON(data)
+})
+```
+
+<Note>
+**Precedence Order**: URI Params → Body → Query → Headers → Cookies
+
+Values from higher-precedence sources override lower-precedence ones.
+</Note>
+
+## Validation Behavior
+
+<Warning>
+Validation only runs for struct destinations (or pointers to structs). Binding into maps and other non-struct types skips validation automatically.
+</Warning>
+
+```go
+// Validation runs (struct)
+type User struct {
+    Name string `validate:"required"`
+}
+user := new(User)
+c.Bind().Body(user) // Validation runs
+
+// Validation skipped (map)
+data := make(map[string]interface{})
+c.Bind().Body(&data) // No validation
+```
+
+## Best Practices
+
+1. **Use descriptive validation tags** - Make error messages clear
+2. **Handle errors appropriately** - Return meaningful HTTP status codes
+3. **Validate at boundaries** - Always validate external input
+4. **Use WithAutoHandling() for APIs** - Simplifies error responses
+5. **Implement custom validators** - For domain-specific rules
+6. **Test validation** - Ensure validators catch invalid data
+
+## See Also
+
+- [Bind API Reference](/api/bind)
+- [Context Methods](/api/ctx)
+- [go-playground/validator Documentation](https://pkg.go.dev/github.com/go-playground/validator/v10)

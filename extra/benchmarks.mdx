@@ -1,0 +1,272 @@
+---
+title: "Benchmarks"
+description: "Performance benchmarks comparing Fiber with other web frameworks using TechEmpower tests"
+---
+
+These benchmarks compare the performance of Fiber against other web frameworks using industry-standard tests. The results demonstrate Fiber's exceptional performance characteristics across various scenarios.
+
+## TechEmpower Benchmarks
+
+[TechEmpower](https://www.techempower.com/benchmarks/#section=test&runid=1d5bfc8a-5c4a-4fb2-a792-ad967f1eb138) provides a comprehensive performance comparison of web application frameworks executing fundamental tasks such as JSON serialization, database access, and server-side template rendering.
+
+Each framework operates under a realistic production configuration, with results recorded on both cloud instances and physical hardware. Test implementations are community-contributed and maintained in the [FrameworkBenchmarks repository](https://github.com/TechEmpower/FrameworkBenchmarks).
+
+## Test Environment
+
+### Hardware Specifications
+
+- **CPU**: 56 Cores Intel(R) Xeon(R) Gold 6330 @ 2.00GHz
+- **Hardware**: Three homogeneous ProLiant DL360 Gen10 Plus
+- **RAM**: 64GB
+- **Storage**: Enterprise SSD
+- **OS**: Ubuntu
+- **Network**: Mellanox Technologies MT28908 Family ConnectX-6 40Gbps Ethernet
+- **Fiber Version**: v3.0.0
+
+## Benchmark Results
+
+### Plaintext
+
+The Plaintext test measures basic request routing and demonstrates the capacity of high-performance platforms. Requests are pipelined, and the tiny response body demands high throughput to saturate the benchmark's gigabit Ethernet.
+
+See [Plaintext requirements](https://github.com/TechEmpower/FrameworkBenchmarks/wiki/Project-Information-Framework-Tests-Overview#plaintext)
+
+<CardGroup cols={2}>
+  <Card title="Fiber" icon="bolt">
+    **11,987,976** responses per second
+    
+    Average latency: **1.0 ms**
+  </Card>
+  
+  <Card title="Express" icon="node">
+    **1,204,969** responses per second
+    
+    Average latency: **8.8 ms**
+  </Card>
+</CardGroup>
+
+<Note>
+  Fiber handles **10x more requests** than Express in plaintext benchmarks while maintaining significantly lower latency.
+</Note>
+
+![Plaintext Performance](/img/v3/plaintext.png)
+
+![Fiber vs Express Plaintext](/img/v3/plaintext_express.png)
+
+### JSON Serialization
+
+The JSON test measures JSON serialization performance, a common operation in modern web APIs.
+
+<CardGroup cols={2}>
+  <Card title="Fiber" icon="bolt">
+    **2,363,294** responses per second
+    
+    Average latency: **0.2 ms**
+  </Card>
+  
+  <Card title="Express" icon="node">
+    **949,717** responses per second
+    
+    Average latency: **0.5 ms**
+  </Card>
+</CardGroup>
+
+![JSON Performance](/img/v3/json.png)
+
+![Fiber vs Express JSON](/img/v3/json_express.png)
+
+### Single Query
+
+The Single Query test exercises the framework's object-relational mapping (ORM) or database access layer with a single database query per request.
+
+<CardGroup cols={2}>
+  <Card title="Fiber" icon="bolt">
+    **953,016** responses per second
+    
+    Average latency: **0.6 ms**
+  </Card>
+  
+  <Card title="Express" icon="node">
+    **441,543** responses per second
+    
+    Average latency: **1.3 ms**
+  </Card>
+</CardGroup>
+
+![Single Query Performance](/img/v3/single_query.png)
+
+![Fiber vs Express Single Query](/img/v3/single_query_express.png)
+
+### Multiple Queries
+
+The Multiple Queries test performs multiple database queries per request, testing how frameworks handle concurrent database access.
+
+<CardGroup cols={2}>
+  <Card title="Fiber" icon="bolt">
+    **54,002** responses per second
+    
+    Average latency: **9.4 ms**
+  </Card>
+  
+  <Card title="Express" icon="node">
+    **85,011** responses per second
+    
+    Average latency: **6.0 ms**
+  </Card>
+</CardGroup>
+
+![Multiple Queries Performance](/img/v3/multiple_queries.png)
+
+![Fiber vs Express Multiple Queries](/img/v3/multiple_queries_express.png)
+
+### Data Updates
+
+The Data Updates test performs database queries and updates, representing a more complete CRUD operation pattern.
+
+<CardGroup cols={2}>
+  <Card title="Fiber" icon="bolt">
+    **29,984** responses per second
+    
+    Average latency: **16.9 ms**
+  </Card>
+  
+  <Card title="Express" icon="node">
+    **54,887** responses per second
+    
+    Average latency: **9.2 ms**
+  </Card>
+</CardGroup>
+
+![Data Updates Performance](/img/v3/data_updates.png)
+
+![Fiber vs Express Data Updates](/img/v3/data_updates_express.png)
+
+## Performance Analysis
+
+### Where Fiber Excels
+
+<AccordionGroup>
+  <Accordion title="High-Throughput Scenarios" icon="rocket">
+    Fiber demonstrates exceptional performance in high-throughput scenarios:
+    
+    - **Plaintext**: 10x faster than Express (11.9M vs 1.2M req/s)
+    - **JSON Serialization**: 2.5x faster than Express (2.4M vs 950K req/s)
+    - **Single Query**: 2.2x faster than Express (953K vs 442K req/s)
+    
+    This makes Fiber ideal for:
+    - High-traffic APIs
+    - Microservices handling many requests
+    - Real-time applications
+    - Gateway and proxy services
+  </Accordion>
+  
+  <Accordion title="Low Latency Operations" icon="gauge-high">
+    Fiber maintains consistently low latency across most operations:
+    
+    - Plaintext: 1.0ms average latency
+    - JSON: 0.2ms average latency
+    - Single Query: 0.6ms average latency
+    
+    Low latency is crucial for:
+    - User-facing applications
+    - API gateways
+    - Service mesh communications
+  </Accordion>
+  
+  <Accordion title="Memory Efficiency" icon="memory">
+    Fiber's zero-allocation router and efficient memory management contribute to:
+    
+    - Lower memory footprint
+    - Better garbage collection performance
+    - Higher request throughput under memory pressure
+    - Reduced infrastructure costs
+  </Accordion>
+</AccordionGroup>
+
+## Benchmark Methodology
+
+### Test Categories
+
+TechEmpower benchmarks test several key aspects of web framework performance:
+
+1. **JSON Serialization**: Tests the framework's ability to serialize objects to JSON
+2. **Single Database Query**: Tests database access with a single query per request
+3. **Multiple Database Queries**: Tests handling of multiple sequential database queries
+4. **Database Updates**: Tests reading, modifying, and updating database records
+5. **Plaintext**: Tests basic request routing and response handling
+6. **Fortunes**: Tests template rendering and HTML escaping
+
+### Why These Tests Matter
+
+<CardGroup cols={2}>
+  <Card title="Real-World Patterns" icon="diagram-project">
+    Tests reflect common web application patterns: JSON APIs, database access, and content rendering.
+  </Card>
+  
+  <Card title="Standardized Comparison" icon="scale-balanced">
+    All frameworks run identical operations under the same hardware conditions for fair comparison.
+  </Card>
+  
+  <Card title="Production Configuration" icon="server">
+    Frameworks are configured as they would be in production environments.
+  </Card>
+  
+  <Card title="Community Validated" icon="users">
+    Test implementations are reviewed and maintained by the community.
+  </Card>
+</CardGroup>
+
+## Interpreting Results
+
+<Warning>
+  Benchmarks measure specific scenarios and may not represent your application's exact workload. Use these results as a general guide, and always benchmark your specific use case.
+</Warning>
+
+### Considerations
+
+- **Database tests**: Performance depends heavily on database configuration and network latency
+- **Real applications**: Include business logic, validation, and other processing not captured in benchmarks
+- **Scalability**: Both vertical (single machine) and horizontal (multiple machines) scaling characteristics matter
+- **Development velocity**: Framework productivity, ecosystem, and maintainability are crucial factors beyond raw performance
+
+## Running Your Own Benchmarks
+
+To benchmark Fiber in your environment:
+
+```bash
+# Clone the TechEmpower benchmarks repository
+git clone https://github.com/TechEmpower/FrameworkBenchmarks.git
+cd FrameworkBenchmarks
+
+# Run Fiber benchmarks
+./tfb --mode benchmark --test fiber
+```
+
+For custom benchmarks specific to your use case:
+
+```go
+package main
+
+import (
+    "testing"
+    "github.com/gofiber/fiber/v3"
+)
+
+func BenchmarkFiberHandler(b *testing.B) {
+    app := fiber.New()
+    app.Get("/", func(c fiber.Ctx) error {
+        return c.SendString("Hello, World!")
+    })
+    
+    b.ResetTimer()
+    b.RunParallel(func(pb *testing.PB) {
+        for pb.Next() {
+            // Your benchmark code
+        }
+    })
+}
+```
+
+<Tip>
+  For production benchmarking, use realistic data volumes, network conditions, and concurrent user patterns that match your expected traffic.
+</Tip>

@@ -1,0 +1,578 @@
+---
+title: Handling Responses
+description: Parse and process HTTP responses
+---
+
+# Handling Responses
+
+The `Response` struct represents the server's reply and provides methods to access status codes, headers, body content, and cookies.
+
+## Structure
+
+```go
+type Response struct {
+    client      *Client
+    request     *Request
+    cookie      []*fasthttp.Cookie
+    RawResponse *fasthttp.Response
+}
+```
+
+## Status Information
+
+Get response status details:
+
+### Status Code
+
+Get the numeric HTTP status code:
+
+```go
+resp, err := client.Get("https://httpbin.org/get")
+if err != nil {
+    panic(err)
+}
+
+fmt.Printf("Status Code: %d\n", resp.StatusCode())
+// Output: Status Code: 200
+```
+
+**Signature:**
+```go
+func (r *Response) StatusCode() int
+```
+
+### Status Message
+
+Get the HTTP status message:
+
+```go
+fmt.Printf("Status: %s\n", resp.Status())
+// Output: Status: OK
+```
+
+**Signature:**
+```go
+func (r *Response) Status() string
+```
+
+### Protocol
+
+Get the HTTP protocol version:
+
+```go
+fmt.Printf("Protocol: %s\n", resp.Protocol())
+// Output: Protocol: HTTP/1.1
+```
+
+**Signature:**
+```go
+func (r *Response) Protocol() string
+```
+
+## Headers
+
+Access response headers:
+
+### Get Single Header
+
+```go
+contentType := resp.Header("Content-Type")
+fmt.Printf("Content-Type: %s\n", contentType)
+```
+
+**Signature:**
+```go
+func (r *Response) Header(key string) string
+```
+
+### Get All Headers
+
+Iterate over all response headers:
+
+```go
+import "strings"
+
+for key, values := range resp.Headers() {
+    fmt.Printf("%s: %s\n", key, strings.Join(values, ", "))
+}
+```
+
+**Signature:**
+```go
+func (r *Response) Headers() iter.Seq2[string, []string]
+```
+
+### Collect Headers to Map
+
+```go
+import "maps"
+
+headers := maps.Collect(resp.Headers())
+for key, values := range headers {
+    fmt.Printf("%s: %v\n", key, values)
+}
+```
+
+<Note>
+  Header values are only valid until the response is released. Make copies if you need to store them.
+</Note>
+
+## Response Body
+
+### Get Body as Bytes
+
+```go
+body := resp.Body()
+fmt.Printf("Body length: %d bytes\n", len(body))
+```
+
+**Signature:**
+```go
+func (r *Response) Body() []byte
+```
+
+### Get Body as String
+
+Get the body as a trimmed string:
+
+```go
+text := resp.String()
+fmt.Println(text)
+```
+
+**Signature:**
+```go
+func (r *Response) String() string
+```
+
+### Stream Response Body
+
+Read large responses as a stream:
+
+```go
+c := client.New()
+c.SetStreamResponseBody(true)
+
+resp, err := c.Get("https://httpbin.org/bytes/1024")
+if err != nil {
+    panic(err)
+}
+defer resp.Close()
+
+// Read from stream
+buf := make([]byte, 256)
+total, err := io.CopyBuffer(io.Discard, resp.BodyStream(), buf)
+if err != nil {
+    panic(err)
+}
+
+fmt.Printf("Read %d bytes\n", total)
+```
+
+**Signature:**
+```go
+func (r *Response) BodyStream() io.Reader
+func (r *Response) IsStreaming() bool
+```
+
+<Warning>
+  When using `BodyStream()`, calling `Body()` afterward may return an empty slice if the stream has been consumed.
+</Warning>
+
+### Check if Streaming
+
+```go
+if resp.IsStreaming() {
+    fmt.Println("Response is streaming")
+    // Use resp.BodyStream() to read incrementally
+} else {
+    fmt.Println("Response is buffered")
+    // Use resp.Body() for direct access
+}
+```
+
+## Parse JSON
+
+Unmarshal JSON responses:
+
+```go
+type User struct {
+    ID    int    `json:"id"`
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+resp, err := client.Get("https://api.example.com/users/1")
+if err != nil {
+    panic(err)
+}
+
+var user User
+if err := resp.JSON(&user); err != nil {
+    panic(err)
+}
+
+fmt.Printf("User: %s (%s)\n", user.Name, user.Email)
+```
+
+**Signature:**
+```go
+func (r *Response) JSON(v any) error
+```
+
+### Parse JSON Array
+
+```go
+type User struct {
+    ID   int    `json:"id"`
+    Name string `json:"name"`
+}
+
+resp, err := client.Get("https://api.example.com/users")
+if err != nil {
+    panic(err)
+}
+
+var users []User
+if err := resp.JSON(&users); err != nil {
+    panic(err)
+}
+
+for _, user := range users {
+    fmt.Printf("User: %s\n", user.Name)
+}
+```
+
+### Custom JSON Unmarshaler
+
+Use a custom JSON unmarshaler:
+
+```go
+import "github.com/goccy/go-json"
+
+c := client.New()
+c.SetJSONUnmarshal(json.Unmarshal)
+
+resp, err := c.Get("https://api.example.com/users/1")
+if err != nil {
+    panic(err)
+}
+
+var user User
+if err := resp.JSON(&user); err != nil {
+    panic(err)
+}
+```
+
+## Parse XML
+
+Unmarshal XML responses:
+
+```go
+type User struct {
+    XMLName xml.Name `xml:"user"`
+    ID      int      `xml:"id"`
+    Name    string   `xml:"name"`
+    Email   string   `xml:"email"`
+}
+
+resp, err := client.Get("https://api.example.com/users/1.xml")
+if err != nil {
+    panic(err)
+}
+
+var user User
+if err := resp.XML(&user); err != nil {
+    panic(err)
+}
+
+fmt.Printf("User: %s\n", user.Name)
+```
+
+**Signature:**
+```go
+func (r *Response) XML(v any) error
+```
+
+## Parse CBOR
+
+Unmarshal CBOR responses:
+
+```go
+type User struct {
+    ID   int    `cbor:"id"`
+    Name string `cbor:"name"`
+}
+
+resp, err := client.Get("https://api.example.com/users/1.cbor")
+if err != nil {
+    panic(err)
+}
+
+var user User
+if err := resp.CBOR(&user); err != nil {
+    panic(err)
+}
+```
+
+**Signature:**
+```go
+func (r *Response) CBOR(v any) error
+```
+
+## Cookies
+
+Access cookies from the response:
+
+```go
+resp, err := client.Get("https://httpbin.org/cookies/set/go/fiber")
+if err != nil {
+    panic(err)
+}
+
+cookies := resp.Cookies()
+for _, cookie := range cookies {
+    fmt.Printf("%s = %s\n", string(cookie.Key()), string(cookie.Value()))
+}
+// Output: go = fiber
+```
+
+**Signature:**
+```go
+func (r *Response) Cookies() []*fasthttp.Cookie
+```
+
+<Note>
+  Cookie values are only valid until the response is released. Make copies if you need to store them.
+</Note>
+
+## Save Response
+
+Save the response body to a file or writer:
+
+### Save to File
+
+```go
+resp, err := client.Get("https://httpbin.org/image/png")
+if err != nil {
+    panic(err)
+}
+defer resp.Close()
+
+if err := resp.Save("/path/to/image.png"); err != nil {
+    panic(err)
+}
+```
+
+### Save to Writer
+
+```go
+var buf bytes.Buffer
+
+resp, err := client.Get("https://httpbin.org/get")
+if err != nil {
+    panic(err)
+}
+defer resp.Close()
+
+if err := resp.Save(&buf); err != nil {
+    panic(err)
+}
+
+fmt.Printf("Saved %d bytes\n", buf.Len())
+```
+
+**Signature:**
+```go
+func (r *Response) Save(v any) error
+```
+
+<Info>
+  When saving to a file, parent directories are created automatically if they don't exist.
+</Info>
+
+## Error Handling
+
+Check response status and handle errors:
+
+```go
+resp, err := client.Get("https://api.example.com/users/999")
+if err != nil {
+    panic(err)
+}
+defer resp.Close()
+
+if resp.StatusCode() != 200 {
+    fmt.Printf("Error: %s\n", resp.Status())
+    fmt.Printf("Body: %s\n", resp.String())
+    return
+}
+
+var user User
+if err := resp.JSON(&user); err != nil {
+    fmt.Printf("Failed to parse JSON: %v\n", err)
+    return
+}
+```
+
+### Check Status Code Ranges
+
+```go
+switch {
+case resp.StatusCode() >= 200 && resp.StatusCode() < 300:
+    fmt.Println("Success")
+case resp.StatusCode() >= 400 && resp.StatusCode() < 500:
+    fmt.Println("Client error")
+case resp.StatusCode() >= 500:
+    fmt.Println("Server error")
+}
+```
+
+## Resource Management
+
+Properly release responses to avoid memory leaks:
+
+### Close Response
+
+Release both request and response to the pool:
+
+```go
+resp, err := client.Get("https://httpbin.org/get")
+if err != nil {
+    panic(err)
+}
+defer resp.Close()
+
+// Use the response
+fmt.Println(resp.String())
+```
+
+**Signature:**
+```go
+func (r *Response) Close()
+```
+
+### Manual Pool Management
+
+```go
+resp := client.AcquireResponse()
+defer client.ReleaseResponse(resp)
+
+// Configure and use response
+```
+
+**Signature:**
+```go
+func AcquireResponse() *Response
+func ReleaseResponse(resp *Response)
+```
+
+<Warning>
+  Always call `resp.Close()` or `client.ReleaseResponse(resp)` when done with a response. Do not use responses after releasing them.
+</Warning>
+
+## Access Raw Response
+
+Access the underlying fasthttp response:
+
+```go
+resp, err := client.Get("https://httpbin.org/get")
+if err != nil {
+    panic(err)
+}
+defer resp.Close()
+
+// Access raw fasthttp response
+rawResp := resp.RawResponse
+fmt.Printf("Connection close: %v\n", rawResp.Header.ConnectionClose())
+```
+
+## Examples
+
+### Download and Save File
+
+```go
+c := client.New()
+c.SetStreamResponseBody(true)
+
+resp, err := c.Get("https://example.com/largefile.zip")
+if err != nil {
+    panic(err)
+}
+defer resp.Close()
+
+if err := resp.Save("/downloads/largefile.zip"); err != nil {
+    panic(err)
+}
+
+fmt.Println("File downloaded successfully")
+```
+
+### Parse Nested JSON
+
+```go
+type Repository struct {
+    Name        string `json:"name"`
+    FullName    string `json:"full_name"`
+    Description string `json:"description"`
+    Owner       struct {
+        Login string `json:"login"
+    } `json:"owner"`
+}
+
+resp, err := client.Get("https://api.github.com/repos/gofiber/fiber")
+if err != nil {
+    panic(err)
+}
+defer resp.Close()
+
+var repo Repository
+if err := resp.JSON(&repo); err != nil {
+    panic(err)
+}
+
+fmt.Printf("Repository: %s\n", repo.FullName)
+fmt.Printf("Owner: %s\n", repo.Owner.Login)
+fmt.Printf("Description: %s\n", repo.Description)
+```
+
+### Handle API Errors
+
+```go
+type APIError struct {
+    Error   string `json:"error"`
+    Message string `json:"message"`
+}
+
+resp, err := client.Get("https://api.example.com/users/999")
+if err != nil {
+    panic(err)
+}
+defer resp.Close()
+
+if resp.StatusCode() != 200 {
+    var apiErr APIError
+    if err := resp.JSON(&apiErr); err != nil {
+        fmt.Printf("Failed to parse error response: %v\n", err)
+        return
+    }
+    fmt.Printf("API Error: %s - %s\n", apiErr.Error, apiErr.Message)
+    return
+}
+
+var user User
+if err := resp.JSON(&user); err != nil {
+    panic(err)
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Request/Response Hooks" icon="hook" href="./hooks">
+    Intercept and modify responses
+  </Card>
+  <Card title="Examples" icon="code" href="./examples">
+    See complete working examples
+  </Card>
+</CardGroup>

@@ -1,0 +1,313 @@
+---
+title: Timeout
+description: Request timeout middleware for Fiber
+---
+
+Timeout middleware for Fiber wraps handlers with a timeout. When a handler execution exceeds the specified timeout duration, the request is canceled and an error is returned.
+
+## Signatures
+
+```go
+func New(handler fiber.Handler, timeout time.Duration, timeoutErrors ...error) fiber.Handler
+func NewWithContext(handler fiber.Handler, timeout time.Duration, timeoutErrs ...error) fiber.Handler
+```
+
+## Usage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/timeout"
+    "time"
+)
+```
+
+### Basic Usage
+
+```go
+app.Get("/", timeout.New(func(c fiber.Ctx) error {
+    // Simulate long operation
+    time.Sleep(5 * time.Second)
+    return c.SendString("Hello, World!")
+}, 3*time.Second))
+
+// Request will timeout after 3 seconds
+```
+
+### Global Timeout Middleware
+
+```go
+app.Use(timeout.New(func(c fiber.Ctx) error {
+    return c.Next()
+}, 30*time.Second))
+
+app.Get("/api/users", getUsers)
+app.Get("/api/products", getProducts)
+// All routes will have 30 second timeout
+```
+
+### Custom Timeout Handler
+
+```go
+app.Get("/slow", timeout.New(
+    slowHandler,
+    5*time.Second,
+)))
+```
+
+### With Custom Timeout Errors
+
+```go
+import "errors"
+
+var ErrDatabaseTimeout = errors.New("database timeout")
+
+app.Get("/data", timeout.New(
+    dataHandler,
+    10*time.Second,
+    ErrDatabaseTimeout,
+))
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+Defines a function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="OnTimeout" type="fiber.Handler" default="nil">
+Executed when a timeout occurs. If not set, returns `fiber.ErrRequestTimeout`.
+</ParamField>
+
+<ParamField path="Errors" type="[]error" default="nil">
+Defines custom errors that are treated as timeouts. When the handler returns one of these errors, it's handled as a timeout.
+</ParamField>
+
+<ParamField path="Timeout" type="time.Duration" default="0">
+Defines the timeout duration for all routes. If set to 0, no timeout is applied.
+</ParamField>
+
+## Default Config
+
+```go
+var ConfigDefault = Config{
+    Next:      nil,
+    Timeout:   0,
+    OnTimeout: nil,
+    Errors:    nil,
+}
+```
+
+## Common Use Cases
+
+### API Request Timeout
+
+```go
+api := app.Group("/api")
+
+api.Use(timeout.New(func(c fiber.Ctx) error {
+    return c.Next()
+}, 15*time.Second))
+
+api.Get("/users", getUsers)
+api.Post("/users", createUser)
+```
+
+### Custom Timeout Response
+
+```go
+app.Get("/process", timeout.NewWithContext(
+    processHandler,
+    10*time.Second,
+)).Use(func(c fiber.Ctx) error {
+    err := c.Next()
+    if err == fiber.ErrRequestTimeout {
+        return c.Status(503).JSON(fiber.Map{
+            "error": "Request processing took too long",
+            "retry": true,
+        })
+    }
+    return err
+})
+```
+
+### Database Query Timeout
+
+```go
+func getUserWithTimeout(c fiber.Ctx) error {
+    return timeout.New(func(c fiber.Ctx) error {
+        // Database query
+        user, err := db.GetUser(c.Params("id"))
+        if err != nil {
+            return err
+        }
+        return c.JSON(user)
+    }, 5*time.Second)(c)
+}
+
+app.Get("/users/:id", getUserWithTimeout)
+```
+
+### Skip Timeout for Specific Routes
+
+```go
+app.Use(func(c fiber.Ctx) error {
+    // Skip timeout for webhooks
+    if strings.HasPrefix(c.Path(), "/webhooks") {
+        return c.Next()
+    }
+    
+    return timeout.New(func(c fiber.Ctx) error {
+        return c.Next()
+    }, 30*time.Second)(c)
+})
+```
+
+### Long-Running Tasks
+
+```go
+app.Post("/reports/generate", timeout.New(
+    func(c fiber.Ctx) error {
+        // Generate report asynchronously
+        jobID := generateReportAsync()
+        return c.JSON(fiber.Map{
+            "job_id": jobID,
+            "status": "processing",
+        })
+    },
+    2*time.Second, // Quick response, actual work happens async
+))
+
+app.Get("/reports/:job_id", func(c fiber.Ctx) error {
+    status := checkJobStatus(c.Params("job_id"))
+    return c.JSON(status)
+})
+```
+
+### Streaming with Timeout
+
+```go
+app.Get("/stream", timeout.New(
+    func(c fiber.Ctx) error {
+        c.Set("Content-Type", "text/event-stream")
+        c.Set("Cache-Control", "no-cache")
+        c.Set("Connection", "keep-alive")
+        
+        // Stream data
+        for i := 0; i < 10; i++ {
+            fmt.Fprintf(c, "data: %d\n\n", i)
+            c.Context().SetBodyStreamWriter(fasthttp.StreamWriter(
+                func(w *bufio.Writer) {
+                    w.Flush()
+                },
+            ))
+            time.Sleep(1 * time.Second)
+        }
+        return nil
+    },
+    15*time.Second,
+))
+```
+
+### Different Timeouts per Route Group
+
+```go
+// Fast endpoints - 5 second timeout
+fast := app.Group("/fast")
+fast.Use(timeout.New(func(c fiber.Ctx) error {
+    return c.Next()
+}, 5*time.Second))
+
+// Slow endpoints - 30 second timeout
+slow := app.Group("/slow")
+slow.Use(timeout.New(func(c fiber.Ctx) error {
+    return c.Next()
+}, 30*time.Second))
+```
+
+## Best Practices
+
+### Set Reasonable Timeouts
+
+```go
+// Too short - may timeout legitimate requests
+app.Use(timeout.New(handler, 100*time.Millisecond)) // ❌
+
+// Reasonable - enough time for most operations
+app.Use(timeout.New(handler, 30*time.Second)) // ✅
+
+// Too long - defeats the purpose
+app.Use(timeout.New(handler, 5*time.Minute)) // ❌
+```
+
+### Handle Timeout Gracefully
+
+```go
+app.Use(func(c fiber.Ctx) error {
+    err := c.Next()
+    if err == fiber.ErrRequestTimeout {
+        log.Printf("Request timeout: %s %s", c.Method(), c.Path())
+        return c.Status(504).JSON(fiber.Map{
+            "error":   "Gateway Timeout",
+            "message": "The server took too long to respond",
+        })
+    }
+    return err
+})
+```
+
+### Combine with Context Cancellation
+
+```go
+app.Get("/data", timeout.NewWithContext(
+    func(c fiber.Ctx) error {
+        ctx := c.Context()
+        
+        select {
+        case <-ctx.Done():
+            return ctx.Err()
+        case result := <-fetchData():
+            return c.JSON(result)
+        }
+    },
+    10*time.Second,
+))
+```
+
+### Monitor Timeout Occurrences
+
+```go
+var timeoutCounter int64
+
+app.Use(func(c fiber.Ctx) error {
+    err := c.Next()
+    if err == fiber.ErrRequestTimeout {
+        atomic.AddInt64(&timeoutCounter, 1)
+        log.Printf("Total timeouts: %d", atomic.LoadInt64(&timeoutCounter))
+    }
+    return err
+})
+```
+
+### Environment-Based Timeouts
+
+```go
+timeout := 30 * time.Second
+if os.Getenv("ENV") == "development" {
+    timeout = 5 * time.Minute // Longer timeout for debugging
+}
+
+app.Use(timeout.New(func(c fiber.Ctx) error {
+    return c.Next()
+}, timeout))
+```
+
+## Notes
+
+- Timeout middleware should be registered before other middleware and routes
+- When a timeout occurs, the handler is interrupted and `fiber.ErrRequestTimeout` is returned
+- Use `NewWithContext` when you need context cancellation support
+- Timeouts don't prevent the handler from running; they just stop waiting for it
+- Consider using context cancellation in handlers to properly clean up resources
+- Setting `Timeout: 0` disables timeout protection
+- Streaming responses may need longer timeouts or no timeout at all

@@ -1,0 +1,679 @@
+---
+title: Bind
+description: Request data binding and validation API for Fiber
+---
+
+The Bind API provides a powerful and flexible way to parse request data into Go structs, maps, and other types. It supports multiple data sources, automatic content-type detection, validation, and both manual and automatic error handling.
+
+## Overview
+
+Access the Bind API through `c.Bind()` in your handlers. It supports binding from:
+
+- Request body (JSON, XML, Form, MsgPack, CBOR)
+- URL query parameters
+- Route parameters (URI)
+- Headers
+- Cookies
+- Response headers
+
+## Error Handling Modes
+
+The Bind API supports two error handling modes:
+
+### Manual Mode (Default)
+
+Returns `*BindError` on parse failures with detailed source and field information.
+
+```go
+var user User
+if err := c.Bind().JSON(&user); err != nil {
+    var be *fiber.BindError
+    if errors.As(err, &be) {
+        // Access: be.Source, be.Field, be.Err
+        return c.Status(400).JSON(fiber.Map{
+            "error": err.Error(),
+            "field": be.Field,
+        })
+    }
+    return err
+}
+```
+
+### Auto-Handling Mode
+
+Automatically sets HTTP 400 status and returns `*fiber.Error`.
+
+```go
+var user User
+if err := c.Bind().WithAutoHandling().JSON(&user); err != nil {
+    return err // Already has 400 status set
+}
+```
+
+## Configuration Methods
+
+### WithAutoHandling
+
+Enables automatic error handling with HTTP 400 status.
+
+```go title="Signature"
+func (b *Bind) WithAutoHandling() *Bind
+```
+
+**Returns:** The Bind instance for method chaining.
+
+```go title="Example"
+var user User
+err := c.Bind().WithAutoHandling().JSON(&user)
+if err != nil {
+    return err // Status 400 already set
+}
+```
+
+### WithoutAutoHandling
+
+Disables automatic error handling (default behavior).
+
+```go title="Signature"
+func (b *Bind) WithoutAutoHandling() *Bind
+```
+
+**Returns:** The Bind instance for method chaining.
+
+```go title="Example"
+var user User
+err := c.Bind().WithoutAutoHandling().JSON(&user)
+if err != nil {
+    // Handle error manually
+    return c.Status(422).JSON(fiber.Map{"error": err.Error()})
+}
+```
+
+### SkipValidation
+
+Enables or disables struct validation for the current bind chain.
+
+```go title="Signature"
+func (b *Bind) SkipValidation(skip bool) *Bind
+```
+
+<ParamField path="skip" type="bool" required>
+  Whether to skip validation (true) or perform it (false)
+</ParamField>
+
+**Returns:** The Bind instance for method chaining.
+
+```go title="Example"
+var user User
+err := c.Bind().SkipValidation(true).JSON(&user)
+// Validation will be skipped even if validator is configured
+```
+
+## Binding Methods
+
+### JSON
+
+Binds JSON request body into the provided struct.
+
+```go title="Signature"
+func (b *Bind) JSON(out any) error
+```
+
+<ParamField path="out" type="any" required>
+  Pointer to struct, map, or slice to bind data into
+</ParamField>
+
+**Returns:** `*BindError` (manual mode) or `*Error` (auto mode) on failure.
+
+```go title="Example"
+type CreateUserRequest struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+    Age   int    `json:"age"`
+}
+
+app.Post("/users", func(c fiber.Ctx) error {
+    var req CreateUserRequest
+    
+    if err := c.Bind().JSON(&req); err != nil {
+        return err
+    }
+
+    return c.JSON(fiber.Map{
+        "name":  req.Name,
+        "email": req.Email,
+        "age":   req.Age,
+    })
+})
+```
+
+### XML
+
+Binds XML request body into the provided struct.
+
+```go title="Signature"
+func (b *Bind) XML(out any) error
+```
+
+<ParamField path="out" type="any" required>
+  Pointer to struct to bind XML data into
+</ParamField>
+
+```go title="Example"
+type Person struct {
+    XMLName xml.Name `xml:"person"`
+    Name    string   `xml:"name"`
+    Age     int      `xml:"age"`
+}
+
+app.Post("/person", func(c fiber.Ctx) error {
+    var person Person
+    
+    if err := c.Bind().XML(&person); err != nil {
+        return err
+    }
+
+    return c.JSON(person)
+})
+```
+
+### Form
+
+Binds form data from `application/x-www-form-urlencoded` or `multipart/form-data` requests.
+
+```go title="Signature"
+func (b *Bind) Form(out any) error
+```
+
+<ParamField path="out" type="any" required>
+  Pointer to struct, map[string]string, or map[string][]string
+</ParamField>
+
+Supports binding multipart files using `*multipart.FileHeader`, `[]*multipart.FileHeader`, or `*[]*multipart.FileHeader`.
+
+```go title="Example"
+type ProfileForm struct {
+    Name   string                `form:"name"`
+    Bio    string                `form:"bio"`
+    Avatar *multipart.FileHeader `form:"avatar"`
+}
+
+app.Post("/profile", func(c fiber.Ctx) error {
+    var form ProfileForm
+    
+    if err := c.Bind().Form(&form); err != nil {
+        return err
+    }
+
+    // Save avatar file
+    if form.Avatar != nil {
+        c.SaveFile(form.Avatar, "./uploads/"+form.Avatar.Filename)
+    }
+
+    return c.JSON(fiber.Map{
+        "name": form.Name,
+        "bio":  form.Bio,
+    })
+})
+```
+
+### Query
+
+Binds query string parameters into the provided struct or map.
+
+```go title="Signature"
+func (b *Bind) Query(out any) error
+```
+
+<ParamField path="out" type="any" required>
+  Pointer to struct, map[string]string, or map[string][]string
+</ParamField>
+
+```go title="Example"
+type SearchQuery struct {
+    Q      string   `query:"q"`
+    Page   int      `query:"page"`
+    Limit  int      `query:"limit"`
+    Tags   []string `query:"tags"`
+}
+
+app.Get("/search", func(c fiber.Ctx) error {
+    var query SearchQuery
+    
+    if err := c.Bind().Query(&query); err != nil {
+        return err
+    }
+
+    return c.JSON(fiber.Map{
+        "query": query.Q,
+        "page":  query.Page,
+        "limit": query.Limit,
+        "tags":  query.Tags,
+    })
+})
+// GET /search?q=fiber&page=1&limit=10&tags=go&tags=web
+```
+
+### URI
+
+Binds route parameters into the provided struct or map.
+
+```go title="Signature"
+func (b *Bind) URI(out any) error
+```
+
+<ParamField path="out" type="any" required>
+  Pointer to struct, map[string]string, or map[string][]string
+</ParamField>
+
+```go title="Example"
+type RouteParams struct {
+    UserID string `uri:"id"`
+    PostID string `uri:"postId"`
+}
+
+app.Get("/users/:id/posts/:postId", func(c fiber.Ctx) error {
+    var params RouteParams
+    
+    if err := c.Bind().URI(&params); err != nil {
+        return err
+    }
+
+    return c.JSON(fiber.Map{
+        "userId": params.UserID,
+        "postId": params.PostID,
+    })
+})
+```
+
+### Header
+
+Binds request headers into the provided struct or map.
+
+```go title="Signature"
+func (b *Bind) Header(out any) error
+```
+
+<ParamField path="out" type="any" required>
+  Pointer to struct, map[string]string, or map[string][]string
+</ParamField>
+
+```go title="Example"
+type RequestHeaders struct {
+    UserAgent     string `header:"User-Agent"`
+    Authorization string `header:"Authorization"`
+    ContentType   string `header:"Content-Type"`
+}
+
+app.Get("/headers", func(c fiber.Ctx) error {
+    var headers RequestHeaders
+    
+    if err := c.Bind().Header(&headers); err != nil {
+        return err
+    }
+
+    return c.JSON(headers)
+})
+```
+
+### Cookie
+
+Binds cookies into the provided struct or map.
+
+```go title="Signature"
+func (b *Bind) Cookie(out any) error
+```
+
+<ParamField path="out" type="any" required>
+  Pointer to struct, map[string]string, or map[string][]string
+</ParamField>
+
+Note: If a cookie value contains commas (e.g., `key=val1,val2`), they'll be bound as a slice if the target is `map[string][]string`.
+
+```go title="Example"
+type SessionCookies struct {
+    SessionID string `cookie:"session_id"`
+    Token     string `cookie:"token"`
+}
+
+app.Get("/session", func(c fiber.Ctx) error {
+    var cookies SessionCookies
+    
+    if err := c.Bind().Cookie(&cookies); err != nil {
+        return err
+    }
+
+    return c.JSON(cookies)
+})
+```
+
+### RespHeader
+
+Binds response headers into the provided struct or map.
+
+```go title="Signature"
+func (b *Bind) RespHeader(out any) error
+```
+
+<ParamField path="out" type="any" required>
+  Pointer to struct, map[string]string, or map[string][]string
+</ParamField>
+
+```go title="Example"
+var headers map[string]string
+c.Bind().RespHeader(&headers)
+```
+
+### Body
+
+Automatically detects content type and binds the request body accordingly.
+
+```go title="Signature"
+func (b *Bind) Body(out any) error
+```
+
+<ParamField path="out" type="any" required>
+  Pointer to struct or map
+</ParamField>
+
+Supported content types:
+- `application/json` → JSON()
+- `application/xml`, `text/xml` → XML()
+- `application/x-www-form-urlencoded`, `multipart/form-data` → Form()
+- `application/msgpack` → MsgPack()
+- `application/cbor` → CBOR()
+- Custom MIME types → Custom binders
+
+```go title="Example"
+type RequestData struct {
+    Name  string `json:"name" xml:"name" form:"name"`
+    Email string `json:"email" xml:"email" form:"email"`
+}
+
+app.Post("/data", func(c fiber.Ctx) error {
+    var data RequestData
+    
+    // Automatically handles JSON, XML, Form, etc.
+    if err := c.Bind().Body(&data); err != nil {
+        return err
+    }
+
+    return c.JSON(data)
+})
+```
+
+### MsgPack
+
+Binds MessagePack request body.
+
+```go title="Signature"
+func (b *Bind) MsgPack(out any) error
+```
+
+### CBOR
+
+Binds CBOR request body.
+
+```go title="Signature"
+func (b *Bind) CBOR(out any) error
+```
+
+### All
+
+Binds values from multiple sources in precedence order: URI → Body → Query → Headers → Cookies.
+
+```go title="Signature"
+func (b *Bind) All(out any) error
+```
+
+<ParamField path="out" type="any" required>
+  Pointer to struct (not map or slice)
+</ParamField>
+
+```go title="Example"
+type CompleteRequest struct {
+    // From URI
+    UserID string `uri:"id"`
+    
+    // From Body
+    Name  string `json:"name" form:"name"`
+    Email string `json:"email" form:"email"`
+    
+    // From Query
+    Page  int `query:"page"`
+    
+    // From Header
+    Token string `header:"Authorization"`
+}
+
+app.Post("/users/:id", func(c fiber.Ctx) error {
+    var req CompleteRequest
+    
+    if err := c.Bind().All(&req); err != nil {
+        return err
+    }
+
+    return c.JSON(req)
+})
+```
+
+### Custom
+
+Uses a custom binder registered with the application.
+
+```go title="Signature"
+func (b *Bind) Custom(name string, dest any) error
+```
+
+<ParamField path="name" type="string" required>
+  The name of the custom binder
+</ParamField>
+
+<ParamField path="dest" type="any" required>
+  Destination to bind data into
+</ParamField>
+
+```go title="Example"
+// Register custom binder
+type MyBinder struct{}
+
+func (m *MyBinder) Name() string {
+    return "mybinder"
+}
+
+func (m *MyBinder) MIMETypes() []string {
+    return []string{"application/custom"}
+}
+
+func (m *MyBinder) Parse(c fiber.Ctx, out any) error {
+    // Custom parsing logic
+    return nil
+}
+
+app := fiber.New()
+app.RegisterCustomBinder(&MyBinder{})
+
+// Use custom binder
+app.Post("/custom", func(c fiber.Ctx) error {
+    var data MyStruct
+    if err := c.Bind().Custom("mybinder", &data); err != nil {
+        return err
+    }
+    return c.JSON(data)
+})
+```
+
+## BindError
+
+Detailed error information for binding failures.
+
+```go title="BindError struct"
+type BindError struct {
+    Err    error  // Underlying error
+    Source string // Binding source (uri, query, body, header, cookie, respHeader)
+    Field  string // Struct field or tag key that failed
+}
+```
+
+### Source Constants
+
+```go
+const (
+    BindSourceURI        = "uri"
+    BindSourceQuery      = "query"
+    BindSourceHeader     = "header"
+    BindSourceCookie     = "cookie"
+    BindSourceBody       = "body"
+    BindSourceRespHeader = "respHeader"
+)
+```
+
+```go title="Example"
+var user User
+if err := c.Bind().JSON(&user); err != nil {
+    var be *fiber.BindError
+    if errors.As(err, &be) {
+        log.Printf("Binding failed: source=%s, field=%s, error=%v",
+            be.Source, be.Field, be.Err)
+        
+        // Different status codes based on source
+        if be.Source == fiber.BindSourceURI {
+            return c.Status(404).JSON(fiber.Map{"error": "not found"})
+        }
+        return c.Status(400).JSON(fiber.Map{
+            "error": "validation failed",
+            "field": be.Field,
+        })
+    }
+}
+```
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "errors"
+    "mime/multipart"
+
+    "github.com/gofiber/fiber/v3"
+)
+
+type CreatePostRequest struct {
+    Title       string                `json:"title" form:"title" validate:"required,min=3"`
+    Content     string                `json:"content" form:"content" validate:"required"`
+    Tags        []string              `json:"tags" form:"tags"`
+    Published   bool                  `json:"published" form:"published"`
+    Image       *multipart.FileHeader `form:"image"`
+}
+
+type UpdatePostRequest struct {
+    PostID  string   `uri:"id" validate:"required"`
+    Title   string   `json:"title" validate:"min=3"`
+    Content string   `json:"content"`
+    Tags    []string `json:"tags"`
+}
+
+type SearchParams struct {
+    Query string   `query:"q"`
+    Tags  []string `query:"tags"`
+    Page  int      `query:"page"`
+    Limit int      `query:"limit"`
+}
+
+func main() {
+    app := fiber.New()
+
+    // Create post with auto error handling
+    app.Post("/posts", func(c fiber.Ctx) error {
+        var req CreatePostRequest
+        
+        if err := c.Bind().WithAutoHandling().Form(&req); err != nil {
+            return err // 400 status already set
+        }
+
+        // Save image if provided
+        if req.Image != nil {
+            c.SaveFile(req.Image, "./uploads/"+req.Image.Filename)
+        }
+
+        return c.Status(201).JSON(fiber.Map{
+            "title":     req.Title,
+            "content":   req.Content,
+            "tags":      req.Tags,
+            "published": req.Published,
+        })
+    })
+
+    // Update post with manual error handling
+    app.Put("/posts/:id", func(c fiber.Ctx) error {
+        var req UpdatePostRequest
+        
+        // Bind from multiple sources
+        if err := c.Bind().All(&req); err != nil {
+            var be *fiber.BindError
+            if errors.As(err, &be) {
+                // Custom error response based on source
+                if be.Source == fiber.BindSourceURI {
+                    return c.Status(404).JSON(fiber.Map{
+                        "error": "post not found",
+                    })
+                }
+                return c.Status(400).JSON(fiber.Map{
+                    "error": "invalid request",
+                    "field": be.Field,
+                })
+            }
+            return err
+        }
+
+        return c.JSON(fiber.Map{
+            "id":      req.PostID,
+            "title":   req.Title,
+            "content": req.Content,
+            "tags":    req.Tags,
+        })
+    })
+
+    // Search with query parameters
+    app.Get("/posts/search", func(c fiber.Ctx) error {
+        var params SearchParams
+        
+        if err := c.Bind().Query(&params); err != nil {
+            return err
+        }
+
+        // Set defaults
+        if params.Page == 0 {
+            params.Page = 1
+        }
+        if params.Limit == 0 {
+            params.Limit = 10
+        }
+
+        return c.JSON(fiber.Map{
+            "query": params.Query,
+            "tags":  params.Tags,
+            "page":  params.Page,
+            "limit": params.Limit,
+        })
+    })
+
+    app.Listen(":3000")
+}
+```
+
+## Best Practices
+
+1. **Use auto-handling for APIs**: `WithAutoHandling()` simplifies error handling for REST APIs
+
+2. **Manual mode for custom logic**: Use manual mode when you need different status codes or custom error responses
+
+3. **Validation**: Configure a struct validator in `fiber.Config.StructValidator` for automatic validation
+
+4. **Multiple sources**: Use `All()` to bind from multiple sources with automatic precedence
+
+5. **Error inspection**: Use `errors.As()` to inspect `*BindError` for detailed error information
+
+6. **Struct tags**: Use appropriate tags (`json`, `form`, `query`, `uri`, `header`, `cookie`) for each field

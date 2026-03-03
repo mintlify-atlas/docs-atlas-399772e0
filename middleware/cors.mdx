@@ -1,0 +1,202 @@
+---
+title: CORS
+description: Cross-Origin Resource Sharing middleware for Fiber
+---
+
+CORS (Cross-Origin Resource Sharing) middleware for Fiber lets servers control who can access resources and how. It isn't a security feature; it merely relaxes the browser's same-origin policy so cross-origin requests can succeed. Learn more on [MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS).
+
+It adds CORS headers to responses, listing allowed origins, methods, and headers, and handles preflight checks.
+
+<Warning>
+Avoid common pitfalls such as using wildcard origins with credentials, overly permissive origin lists, or skipping validation with `AllowOriginsFunc`, as misconfiguration can create security risks.
+</Warning>
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Usage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/cors"
+)
+```
+
+### Basic Usage
+
+```go
+// Default config (allows wildcard origins)
+app.Use(cors.New())
+
+// Custom configuration
+app.Use(cors.New(cors.Config{
+    AllowOrigins: []string{"https://gofiber.io", "https://gofiber.net"},
+    AllowHeaders: []string{"Origin", "Content-Type", "Accept"},
+}))
+```
+
+### Dynamic Origin Validation
+
+<Warning>
+Never allow `AllowOriginsFunc` to return `true` for all origins. This is particularly crucial when `AllowCredentials` is set to `true`. Doing so can bypass the restriction of using a wildcard origin with credentials, exposing your application to serious security threats.
+</Warning>
+
+```go
+func dbCheckOrigin(db *sql.DB, origin string) bool {
+    query := "SELECT COUNT(*) FROM allowed_origins WHERE origin = $1"
+    var count int
+    err := db.QueryRow(query, origin).Scan(&count)
+    if err != nil {
+        return false
+    }
+    return count > 0
+}
+
+app.Use(cors.New(cors.Config{
+    AllowOriginsFunc: func(origin string) bool {
+        return dbCheckOrigin(db, origin)
+    },
+}))
+```
+
+### Subdomain Matching
+
+```go
+app.Use(cors.New(cors.Config{
+    AllowOrigins: []string{"https://*.example.com"},
+}))
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+Defines a function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="AllowOrigins" type="[]string" default='["*"]'>
+Defines a list of origins that may access the resource. Supports subdomain matching (e.g., `"https://*.example.com"`). If the special wildcard `"*"` is present, all origins will be allowed.
+</ParamField>
+
+<ParamField path="AllowOriginsFunc" type="func(origin string) bool" default="nil">
+Dynamically determines whether to allow a request based on its origin. If this function returns `true`, the 'Access-Control-Allow-Origin' response header will be set to the request's origin. Only used if the request's origin doesn't match any origin in `AllowOrigins`.
+</ParamField>
+
+<ParamField path="AllowMethods" type="[]string" default={`GET, POST, HEAD, PUT, DELETE, PATCH`}>
+Defines a list of methods allowed when accessing the resource. Used in response to a preflight request.
+</ParamField>
+
+<ParamField path="AllowHeaders" type="[]string" default="[]">
+Defines a list of request headers that can be used when making the actual request. This is in response to a preflight request.
+</ParamField>
+
+<ParamField path="AllowCredentials" type="bool" default="false">
+Indicates whether the response can be exposed when the credentials flag is true. When used as part of a response to a preflight request, this indicates whether the actual request can be made using credentials. Note: If true, AllowOrigins cannot be set to a wildcard (`"*"`).
+</ParamField>
+
+<ParamField path="ExposeHeaders" type="[]string" default="[]">
+Defines an allowlist of headers that clients are allowed to access.
+</ParamField>
+
+<ParamField path="MaxAge" type="int" default="0">
+Indicates how long (in seconds) the results of a preflight request can be cached. If you pass MaxAge 0, the Access-Control-Max-Age header will not be added and the browser will use 5 seconds by default. To disable caching completely, pass a negative value.
+</ParamField>
+
+<ParamField path="AllowPrivateNetwork" type="bool" default="false">
+Indicates whether the `Access-Control-Allow-Private-Network` response header should be set to `true`, allowing requests from private networks.
+</ParamField>
+
+<ParamField path="DisableValueRedaction" type="bool" default="false">
+Disables redaction of misconfigured origins and settings in panics and logs.
+</ParamField>
+
+## Default Config
+
+```go
+var ConfigDefault = Config{
+    Next:             nil,
+    AllowOriginsFunc: nil,
+    AllowOrigins:     []string{"*"},
+    DisableValueRedaction: false,
+    AllowMethods: []string{
+        fiber.MethodGet,
+        fiber.MethodPost,
+        fiber.MethodHead,
+        fiber.MethodPut,
+        fiber.MethodDelete,
+        fiber.MethodPatch,
+    },
+    AllowHeaders:        []string{},
+    AllowCredentials:    false,
+    ExposeHeaders:       []string{},
+    MaxAge:              0,
+    AllowPrivateNetwork: false,
+}
+```
+
+## Common Use Cases
+
+### Production API with Specific Origins
+
+```go
+app.Use(cors.New(cors.Config{
+    AllowOrigins: []string{
+        "https://app.example.com",
+        "https://admin.example.com",
+    },
+    AllowCredentials: true,
+    AllowHeaders: []string{"Authorization", "Content-Type"},
+}))
+```
+
+### Development Environment
+
+```go
+if os.Getenv("ENV") == "development" {
+    app.Use(cors.New(cors.Config{
+        AllowOrigins: []string{"http://localhost:3000"},
+    }))
+}
+```
+
+### Microservices Communication
+
+```go
+app.Use(cors.New(cors.Config{
+    AllowOrigins: []string{"https://*.internal.company.com"},
+    AllowMethods: []string{"GET", "POST", "PUT", "DELETE"},
+}))
+```
+
+### Public API
+
+```go
+app.Use("/api/public", cors.New(cors.Config{
+    AllowOrigins: []string{"*"},
+    AllowMethods: []string{"GET"},
+}))
+```
+
+## Security Considerations
+
+<Warning>
+**Never use wildcard origins with credentials:**
+
+```go
+// PROHIBITED - Will cause panic
+app.Use(cors.New(cors.Config{
+    AllowOrigins: []string{"*"},
+    AllowCredentials: true, // Error!
+}))
+```
+</Warning>
+
+### Best Practices
+
+1. **Specify Allowed Origins**: Instead of using a wildcard, specify exact domains
+2. **Use Credentials Carefully**: Only enable `AllowCredentials` when necessary
+3. **Limit Exposed Headers**: Only allowlist necessary headers
+4. **Validate with `AllowOriginsFunc`**: Ensure robust checks when using dynamic validation

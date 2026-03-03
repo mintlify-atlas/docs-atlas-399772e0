@@ -1,0 +1,285 @@
+---
+title: "Retry"
+description: "Exponential backoff retry mechanism for handling network failures and transient errors"
+---
+
+The Retry addon provides a robust retry mechanism for handling unsuccessful network operations using an exponential backoff algorithm with jitter. It automatically retries failed operations multiple times with increasing delays between attempts to improve the chances of success.
+
+## Overview
+
+The retry addon is designed to handle transient failures in network operations by:
+
+- Implementing exponential backoff with jitter to avoid thundering herd problems
+- Breaking synchronization across clients to prevent collision
+- Providing configurable retry behavior for different use cases
+- Supporting any function that returns an error
+
+## Installation
+
+```bash
+go get -u github.com/gofiber/fiber/v3/addon/retry
+```
+
+## Signatures
+
+```go
+func NewExponentialBackoff(config ...retry.Config) *retry.ExponentialBackoff
+```
+
+## Usage
+
+### Basic Example
+
+Create a retry mechanism with default configuration and retry a network request:
+
+```go
+package main
+
+import (
+    "fmt"
+
+    "github.com/gofiber/fiber/v3/addon/retry"
+    "github.com/gofiber/fiber/v3/client"
+)
+
+func main() {
+    // Create exponential backoff with default config
+    expBackoff := retry.NewExponentialBackoff()
+
+    // Variables to capture the response
+    var resp *client.Response
+    var err error
+
+    // Retry the network request
+    err = expBackoff.Retry(func() error {
+        client := client.New()
+        resp, err = client.Get("https://gofiber.io")
+        if err != nil {
+            return fmt.Errorf("GET gofiber.io failed: %w", err)
+        }
+        if resp.StatusCode() != 200 {
+            return fmt.Errorf("GET gofiber.io did not return OK 200")
+        }
+        return nil
+    })
+
+    if err != nil {
+        panic(err)
+    }
+    fmt.Printf("GET gofiber.io succeeded with status code %d\n", resp.StatusCode())
+}
+```
+
+### Custom Configuration
+
+Configure the retry behavior to match your specific requirements:
+
+```go
+expBackoff := retry.NewExponentialBackoff(retry.Config{
+    InitialInterval: 2 * time.Second,  // Start with 2 second delay
+    MaxBackoffTime:  64 * time.Second, // Cap delays at 64 seconds
+    Multiplier:      2.0,              // Double delay each retry
+    MaxRetryCount:   15,               // Attempt up to 15 times
+})
+
+err := expBackoff.Retry(func() error {
+    // Your operation here
+    return performNetworkOperation()
+})
+```
+
+## Configuration
+
+### Config Structure
+
+```go
+type Config struct {
+    // InitialInterval defines the initial time interval for backoff algorithm.
+    //
+    // Optional. Default: 1 * time.Second
+    InitialInterval time.Duration
+
+    // MaxBackoffTime defines maximum time duration for backoff algorithm.
+    // When the algorithm reaches this time, rest of the retries will be capped
+    // at this maximum duration.
+    //
+    // Optional. Default: 32 * time.Second
+    MaxBackoffTime time.Duration
+
+    // Multiplier defines the multiplier number of the backoff algorithm.
+    //
+    // Optional. Default: 2.0
+    Multiplier float64
+
+    // MaxRetryCount defines maximum retry count for the backoff algorithm.
+    //
+    // Optional. Default: 10
+    MaxRetryCount int
+}
+```
+
+### Default Configuration
+
+```go
+var DefaultConfig = Config{
+    InitialInterval: 1 * time.Second,
+    MaxBackoffTime:  32 * time.Second,
+    Multiplier:      2.0,
+    MaxRetryCount:   10,
+}
+```
+
+## How It Works
+
+### Exponential Backoff with Jitter
+
+The retry mechanism uses exponential backoff with jitter:
+
+1. **Initial Attempt**: Executes the function immediately
+2. **First Retry**: Waits `InitialInterval` + random jitter (0-1000ms)
+3. **Subsequent Retries**: Multiplies the interval by `Multiplier` each time
+4. **Maximum Cap**: Once `MaxBackoffTime` is reached, all further retries wait this maximum duration
+5. **Jitter**: Adds 0-1000ms random delay to prevent thundering herd
+
+### Retry Flow
+
+```go
+Attempt 1: Immediate execution
+  ↓ (fails)
+Wait: 1s + jitter
+  ↓
+Attempt 2: Retry
+  ↓ (fails)
+Wait: 2s + jitter
+  ↓
+Attempt 3: Retry
+  ↓ (fails)
+Wait: 4s + jitter
+  ↓
+... continues until success or MaxRetryCount reached
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Choose appropriate retry counts">
+    Set `MaxRetryCount` based on your use case:
+    - **API calls**: 3-5 retries for quick failures
+    - **Background jobs**: 10-15 retries for eventual consistency
+    - **Critical operations**: Higher counts with longer backoff times
+  </Accordion>
+
+  <Accordion title="Configure timeouts">
+    Always use reasonable timeouts in your retry function to prevent hanging:
+    ```go
+    err := expBackoff.Retry(func() error {
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+        return performOperationWithContext(ctx)
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Handle idempotency">
+    Ensure your operations are idempotent (safe to retry):
+    - Use unique request IDs
+    - Check for duplicate operations
+    - Design operations to be naturally idempotent
+  </Accordion>
+
+  <Accordion title="Log retry attempts">
+    Add logging to track retry behavior:
+    ```go
+    attempt := 0
+    err := expBackoff.Retry(func() error {
+        attempt++
+        log.Printf("Attempt %d: Making request", attempt)
+        return makeRequest()
+    })
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Use Cases
+
+### API Rate Limiting
+
+Handle rate-limited API responses:
+
+```go
+expBackoff := retry.NewExponentialBackoff(retry.Config{
+    InitialInterval: 1 * time.Second,
+    MaxBackoffTime:  60 * time.Second,
+    MaxRetryCount:   5,
+})
+
+err := expBackoff.Retry(func() error {
+    resp, err := apiClient.MakeRequest()
+    if err != nil {
+        return err
+    }
+    if resp.StatusCode() == 429 {
+        return fmt.Errorf("rate limited")
+    }
+    return nil
+})
+```
+
+### Database Connection
+
+Retry database connections during startup:
+
+```go
+expBackoff := retry.NewExponentialBackoff(retry.Config{
+    InitialInterval: 2 * time.Second,
+    MaxBackoffTime:  30 * time.Second,
+    MaxRetryCount:   10,
+})
+
+var db *sql.DB
+err := expBackoff.Retry(func() error {
+    var err error
+    db, err = sql.Open("postgres", connectionString)
+    if err != nil {
+        return err
+    }
+    return db.Ping()
+})
+```
+
+### External Service Calls
+
+Retry calls to external services with transient failures:
+
+```go
+expBackoff := retry.NewExponentialBackoff()
+
+err := expBackoff.Retry(func() error {
+    return callExternalService()
+})
+if err != nil {
+    log.Printf("All retry attempts failed: %v", err)
+}
+```
+
+<Note>
+  The retry mechanism does not sleep after the final failed attempt, ensuring quick error returns when all retries are exhausted.
+</Note>
+
+## Error Handling
+
+The `Retry` method returns:
+- `nil` if any retry attempt succeeds
+- The last error if all retry attempts fail
+
+```go
+err := expBackoff.Retry(func() error {
+    return riskyOperation()
+})
+
+if err != nil {
+    // All retries failed, handle the error
+    log.Printf("Operation failed after %d attempts: %v", 
+        expBackoff.MaxRetryCount, err)
+}
+```

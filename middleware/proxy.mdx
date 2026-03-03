@@ -1,0 +1,424 @@
+---
+title: Proxy
+description: Forward requests to upstream servers with load balancing
+---
+
+Proxy middleware forwards requests to one or more upstream servers with support for load balancing, custom request/response modification, and flexible routing.
+
+## Installation
+
+```bash
+go get -u github.com/gofiber/fiber/v3
+go get -u github.com/gofiber/fiber/v3/middleware/proxy
+```
+
+## Signatures
+
+```go
+// Balancer creates a load balancer among multiple upstream servers
+func Balancer(config Config) fiber.Handler
+
+// Forward performs HTTP request and fills the response
+func Forward(addr string, clients ...*fasthttp.Client) fiber.Handler
+
+// Do performs HTTP request and fills the response
+func Do(c fiber.Ctx, addr string, clients ...*fasthttp.Client) error
+
+// DoRedirects performs request and follows up to maxRedirectsCount redirects
+func DoRedirects(c fiber.Ctx, addr string, maxRedirectsCount int, clients ...*fasthttp.Client) error
+
+// DoDeadline performs request and waits until the deadline
+func DoDeadline(c fiber.Ctx, addr string, deadline time.Time, clients ...*fasthttp.Client) error
+
+// DoTimeout performs request with a timeout
+func DoTimeout(c fiber.Ctx, addr string, timeout time.Duration, clients ...*fasthttp.Client) error
+
+// DomainForward forwards requests for a specific domain
+func DomainForward(hostname string, addr string, clients ...*fasthttp.Client) fiber.Handler
+
+// BalancerForward performs round-robin load balancing
+func BalancerForward(servers []string, clients ...*fasthttp.Client) fiber.Handler
+```
+
+## Usage
+
+### Basic Forwarding
+
+```go
+package main
+
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/proxy"
+)
+
+func main() {
+    app := fiber.New()
+
+    // Forward all requests to another server
+    app.Use(proxy.Forward("http://localhost:8080"))
+
+    app.Listen(":3000")
+}
+```
+
+### Load Balancer
+
+```go
+app.Use(proxy.Balancer(proxy.Config{
+    Servers: []string{
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:3003",
+    },
+}))
+```
+
+### Custom Client Configuration
+
+```go
+import (
+    "crypto/tls"
+    "github.com/valyala/fasthttp"
+)
+
+// Set global custom client
+proxy.WithClient(&fasthttp.Client{
+    NoDefaultUserAgentHeader: true,
+    DisablePathNormalizing:   true,
+    TLSConfig: &tls.Config{
+        InsecureSkipVerify: true,
+    },
+})
+
+// Or per-request
+app.Get("/api/*", proxy.Forward("https://api.example.com", &fasthttp.Client{
+    NoDefaultUserAgentHeader: true,
+}))
+```
+
+### Domain-Based Routing
+
+```go
+app.Get("/payments", proxy.DomainForward("docs.gofiber.io", "http://localhost:8000"))
+```
+
+### Manual Proxy Request
+
+```go
+app.Get("/:id", func(c fiber.Ctx) error {
+    url := "https://api.example.com/" + c.Params("id")
+    if err := proxy.Do(c, url); err != nil {
+        return err
+    }
+    // Modify response
+    c.Response().Header.Del(fiber.HeaderServer)
+    return nil
+})
+```
+
+### Follow Redirects
+
+```go
+app.Get("/proxy", func(c fiber.Ctx) error {
+    if err := proxy.DoRedirects(c, "http://example.com", 3); err != nil {
+        return err
+    }
+    return nil
+})
+```
+
+### With Timeout
+
+```go
+app.Get("/proxy", func(c fiber.Ctx) error {
+    if err := proxy.DoTimeout(c, "http://localhost:8080", 5*time.Second); err != nil {
+        return err
+    }
+    return nil
+})
+```
+
+### With Deadline
+
+```go
+app.Get("/proxy", func(c fiber.Ctx) error {
+    deadline := time.Now().Add(time.Minute)
+    if err := proxy.DoDeadline(c, "http://localhost:8080", deadline); err != nil {
+        return err
+    }
+    return nil
+})
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+  Function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="Servers" type="[]string" required>
+  **Required.** List of upstream servers in format `<scheme>://<host>`. Used in round-robin manner.
+</ParamField>
+
+<ParamField path="ModifyRequest" type="fiber.Handler" default="nil">
+  Handler to modify the request before forwarding.
+</ParamField>
+
+<ParamField path="ModifyResponse" type="fiber.Handler" default="nil">
+  Handler to modify the response before returning.
+</ParamField>
+
+<ParamField path="Timeout" type="time.Duration" default="1 second">
+  Request timeout when calling the proxy client.
+</ParamField>
+
+<ParamField path="ReadBufferSize" type="int" default="(Not specified)">
+  Per-connection buffer size for reading requests. Also limits maximum header size.
+</ParamField>
+
+<ParamField path="WriteBufferSize" type="int" default="(Not specified)">
+  Per-connection buffer size for writing responses.
+</ParamField>
+
+<ParamField path="KeepConnectionHeader" type="bool" default="false">
+  Keeps the Connection header when true. By default, removed per RFC 7230 §6.1.
+</ParamField>
+
+<ParamField path="TLSConfig" type="*tls.Config" default="nil">
+  TLS configuration for the HTTP client.
+</ParamField>
+
+<ParamField path="DialDualStack" type="bool" default="false">
+  Attempts to connect to both IPv4 and IPv6 addresses when true.
+</ParamField>
+
+<ParamField path="Client" type="*fasthttp.LBClient" default="nil">
+  Custom client for complex configurations. When set, other client options are ignored.
+</ParamField>
+
+## Default Configuration
+
+```go
+var ConfigDefault = Config{
+    Next:                 nil,
+    ModifyRequest:        nil,
+    ModifyResponse:       nil,
+    Timeout:              fasthttp.DefaultLBClientTimeout,
+    KeepConnectionHeader: false,
+}
+```
+
+## Best Practices
+
+### Modify Requests
+
+```go
+app.Use(proxy.Balancer(proxy.Config{
+    Servers: []string{
+        "http://localhost:3001",
+        "http://localhost:3002",
+    },
+    ModifyRequest: func(c fiber.Ctx) error {
+        // Add headers
+        c.Request().Header.Add("X-Real-IP", c.IP())
+        c.Request().Header.Add("X-Forwarded-For", c.IP())
+        return nil
+    },
+}))
+```
+
+### Modify Responses
+
+```go
+app.Use(proxy.Balancer(proxy.Config{
+    Servers: []string{"http://localhost:3001"},
+    ModifyResponse: func(c fiber.Ctx) error {
+        // Remove server header
+        c.Response().Header.Del(fiber.HeaderServer)
+        // Add custom header
+        c.Response().Header.Add("X-Proxy", "Fiber")
+        return nil
+    },
+}))
+```
+
+### HTTPS to HTTP Proxy
+
+```go
+// When balancer uses HTTPS but destination uses HTTP
+app.Use(proxy.BalancerForward([]string{
+    "http://localhost:3001",
+    "http://localhost:3002",
+}))
+```
+
+### IPv6 Support
+
+```go
+app.Use(proxy.Balancer(proxy.Config{
+    Servers: []string{
+        "http://[::1]:3001",
+        "http://127.0.0.1:3002",
+        "http://localhost:3003",
+    },
+    DialDualStack: true, // Enable TCP4 and TCP6
+}))
+```
+
+## Common Patterns
+
+### API Gateway
+
+```go
+// Route to different services based on path
+app.Use("/users", proxy.Forward("http://users-service:8080"))
+app.Use("/orders", proxy.Forward("http://orders-service:8080"))
+app.Use("/payments", proxy.Forward("http://payments-service:8080"))
+```
+
+### Conditional Proxying
+
+```go
+app.Use(proxy.Balancer(proxy.Config{
+    Servers: []string{"http://localhost:3001"},
+    Next: func(c fiber.Ctx) bool {
+        // Skip proxy for static files
+        return strings.HasPrefix(c.Path(), "/static")
+    },
+}))
+```
+
+### Custom Load Balancing
+
+```go
+servers := []string{
+    "http://localhost:3001",
+    "http://localhost:3002",
+    "http://localhost:3003",
+}
+
+var counter uint32
+
+app.Use(func(c fiber.Ctx) error {
+    // Simple round-robin
+    idx := atomic.AddUint32(&counter, 1) % uint32(len(servers))
+    return proxy.Do(c, servers[idx])
+})
+```
+
+### Health Check and Failover
+
+```go
+type Server struct {
+    URL     string
+    Healthy bool
+}
+
+servers := []*Server{
+    {URL: "http://localhost:3001", Healthy: true},
+    {URL: "http://localhost:3002", Healthy: true},
+}
+
+app.Use(func(c fiber.Ctx) error {
+    for _, srv := range servers {
+        if !srv.Healthy {
+            continue
+        }
+        if err := proxy.Do(c, srv.URL); err != nil {
+            srv.Healthy = false
+            continue
+        }
+        return nil
+    }
+    return fiber.ErrServiceUnavailable
+})
+```
+
+### Request/Response Logging
+
+```go
+app.Use(proxy.Balancer(proxy.Config{
+    Servers: []string{"http://localhost:3001"},
+    ModifyRequest: func(c fiber.Ctx) error {
+        log.Printf("Proxying %s %s", c.Method(), c.Path())
+        return nil
+    },
+    ModifyResponse: func(c fiber.Ctx) error {
+        log.Printf("Response %d from upstream", c.Response().StatusCode())
+        return nil
+    },
+}))
+```
+
+### WebSocket Proxy
+
+```go
+import "github.com/gofiber/fiber/v3/middleware/websocket"
+
+app.Use("/ws", func(c fiber.Ctx) error {
+    if websocket.IsWebSocketUpgrade(c) {
+        // WebSocket upgrade
+        return proxy.Do(c, "ws://localhost:8080/ws")
+    }
+    return c.Next()
+})
+```
+
+### Authentication Proxy
+
+```go
+app.Use(proxy.Balancer(proxy.Config{
+    Servers: []string{"http://localhost:3001"},
+    ModifyRequest: func(c fiber.Ctx) error {
+        // Add authentication token
+        token := c.Get("Authorization")
+        if token == "" {
+            return fiber.ErrUnauthorized
+        }
+        // Validate and forward
+        return nil
+    },
+}))
+```
+
+### CORS Proxy
+
+```go
+import "github.com/gofiber/fiber/v3/middleware/cors"
+
+app.Use(cors.New())
+app.Use(proxy.Forward("http://api.example.com"))
+```
+
+## Testing
+
+```bash
+# Test basic proxy
+curl http://localhost:3000/api/users
+
+# Test with custom headers
+curl -H "X-Custom-Header: value" http://localhost:3000/api/users
+
+# Test load balancing (multiple requests)
+for i in {1..10}; do
+  curl http://localhost:3000/
+done
+```
+
+## Performance Tips
+
+1. **Reuse clients**: Use `proxy.WithClient()` to set a global client
+2. **Tune buffer sizes**: Adjust `ReadBufferSize` and `WriteBufferSize` for your workload
+3. **Connection pooling**: fasthttp automatically pools connections
+4. **Timeouts**: Always set appropriate timeouts to prevent hanging requests
+5. **IPv6**: Enable `DialDualStack` only if needed
+
+## Security Considerations
+
+- Always validate and sanitize headers in `ModifyRequest`
+- Use TLS for sensitive data (`TLSConfig`)
+- Implement authentication/authorization before proxying
+- Be careful with `KeepConnectionHeader` to avoid proxy loops
+- Set appropriate timeouts to prevent resource exhaustion
+- Consider rate limiting on proxy endpoints

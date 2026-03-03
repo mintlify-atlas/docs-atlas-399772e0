@@ -1,0 +1,352 @@
+---
+title: Pprof
+description: Expose runtime profiling data for performance analysis
+---
+
+Pprof middleware exposes runtime profiling endpoints for analysis with Go's `pprof` tool. It registers handlers under `/debug/pprof/` to help diagnose performance issues, memory leaks, and goroutine problems.
+
+## Installation
+
+```bash
+go get -u github.com/gofiber/fiber/v3
+go get -u github.com/gofiber/fiber/v3/middleware/pprof
+```
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Usage
+
+### Basic Usage
+
+```go
+package main
+
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/pprof"
+)
+
+func main() {
+    app := fiber.New()
+
+    // Register pprof handlers
+    app.Use(pprof.New())
+
+    app.Get("/", func(c fiber.Ctx) error {
+        return c.SendString("Hello, World!")
+    })
+
+    app.Listen(":3000")
+}
+```
+
+### Custom Prefix
+
+```go
+// Add URL prefix for multi-ingress systems
+app.Use(pprof.New(pprof.Config{
+    Prefix: "/myapp",
+}))
+
+// Endpoints will be available at:
+// /myapp/debug/pprof/
+// /myapp/debug/pprof/heap
+// /myapp/debug/pprof/goroutine
+// etc.
+```
+
+### Conditional Registration
+
+```go
+app.Use(pprof.New(pprof.Config{
+    Next: func(c fiber.Ctx) bool {
+        // Only enable in development
+        return os.Getenv("ENV") == "production"
+    },
+}))
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+  Function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="Prefix" type="string" >
+  URL prefix added before `/debug/pprof`. Must start with `/` and omit trailing slash. Example: `/federated-fiber`
+</ParamField>
+
+## Default Configuration
+
+```go
+var ConfigDefault = Config{
+    Next:   nil,
+    Prefix: "",
+}
+```
+
+## Available Endpoints
+
+Once registered, the following endpoints are available:
+
+| Endpoint | Description |
+|----------|-------------|
+| `/debug/pprof/` | Index page with all available profiles |
+| `/debug/pprof/cmdline` | Command line that started the program |
+| `/debug/pprof/profile` | CPU profile (30 seconds by default) |
+| `/debug/pprof/symbol` | Symbol lookup |
+| `/debug/pprof/trace` | Execution trace |
+| `/debug/pprof/heap` | Heap memory allocations |
+| `/debug/pprof/goroutine` | Stack traces of all goroutines |
+| `/debug/pprof/threadcreate` | Stack traces of thread creation |
+| `/debug/pprof/block` | Stack traces of blocking operations |
+| `/debug/pprof/mutex` | Stack traces of mutex contention |
+| `/debug/pprof/allocs` | All past memory allocations |
+
+## Usage Examples
+
+### View Index Page
+
+```bash
+curl http://localhost:3000/debug/pprof/
+```
+
+### CPU Profiling
+
+```bash
+# Collect 30-second CPU profile
+curl http://localhost:3000/debug/pprof/profile?seconds=30 > cpu.prof
+
+# Analyze with pprof
+go tool pprof cpu.prof
+
+# Or analyze directly from URL
+go tool pprof http://localhost:3000/debug/pprof/profile?seconds=30
+```
+
+### Heap Profiling
+
+```bash
+# Collect heap profile
+curl http://localhost:3000/debug/pprof/heap > heap.prof
+
+# Analyze memory usage
+go tool pprof -http=:8080 heap.prof
+
+# Or directly
+go tool pprof -http=:8080 http://localhost:3000/debug/pprof/heap
+```
+
+### Goroutine Analysis
+
+```bash
+# Get goroutine dump
+curl http://localhost:3000/debug/pprof/goroutine > goroutine.prof
+
+# Analyze goroutines
+go tool pprof goroutine.prof
+
+# Or view as text
+curl http://localhost:3000/debug/pprof/goroutine?debug=1
+```
+
+### Trace Collection
+
+```bash
+# Collect 5-second trace
+curl http://localhost:3000/debug/pprof/trace?seconds=5 > trace.out
+
+# View trace in browser
+go tool trace trace.out
+```
+
+### Block Profiling
+
+```go
+import "runtime"
+
+func main() {
+    // Enable block profiling
+    runtime.SetBlockProfileRate(1)
+
+    app := fiber.New()
+    app.Use(pprof.New())
+    app.Listen(":3000")
+}
+```
+
+```bash
+# Collect block profile
+go tool pprof http://localhost:3000/debug/pprof/block
+```
+
+### Mutex Profiling
+
+```go
+import "runtime"
+
+func main() {
+    // Enable mutex profiling
+    runtime.SetMutexProfileFraction(1)
+
+    app := fiber.New()
+    app.Use(pprof.New())
+    app.Listen(":3000")
+}
+```
+
+```bash
+# Collect mutex profile
+go tool pprof http://localhost:3000/debug/pprof/mutex
+```
+
+## Best Practices
+
+### Restrict Access in Production
+
+```go
+app.Use(pprof.New(pprof.Config{
+    Next: func(c fiber.Ctx) bool {
+        // Only allow from localhost in production
+        if os.Getenv("ENV") == "production" {
+            return c.IP() != "127.0.0.1"
+        }
+        return false
+    },
+}))
+```
+
+### Use with Authentication
+
+```go
+import "github.com/gofiber/fiber/v3/middleware/keyauth"
+
+// Protect with API key
+app.Use("/debug/pprof", keyauth.New(keyauth.Config{
+    Validator: validateKey,
+}))
+
+app.Use(pprof.New())
+```
+
+### Development Only
+
+```go
+if os.Getenv("ENV") != "production" {
+    app.Use(pprof.New())
+}
+```
+
+## Common Patterns
+
+### Debug Container in Kubernetes
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: myapp
+spec:
+  containers:
+  - name: app
+    image: myapp:latest
+    ports:
+    - containerPort: 3000
+      name: http
+    - containerPort: 6060
+      name: pprof
+```
+
+```go
+// Main application on :3000
+go app.Listen(":3000")
+
+// Pprof on separate port
+debugApp := fiber.New()
+debugApp.Use(pprof.New())
+go debugApp.Listen(":6060")
+```
+
+### Profile Specific Routes
+
+```go
+// Only enable pprof for /debug routes
+app.Get("/debug/*", pprof.New())
+```
+
+### With Custom Prefix for Service Mesh
+
+```go
+// For services behind Envoy/Istio
+app.Use(pprof.New(pprof.Config{
+    Prefix: "/myservice",
+}))
+
+// Access at: /myservice/debug/pprof/
+```
+
+## Analysis Commands
+
+### Interactive Mode
+
+```bash
+# CPU profile
+go tool pprof http://localhost:3000/debug/pprof/profile?seconds=30
+
+# Common commands in pprof:
+# top - Show top functions
+# list <function> - Show source code
+# web - Open in browser (requires graphviz)
+# pdf - Generate PDF
+```
+
+### Web Interface
+
+```bash
+# Start web UI
+go tool pprof -http=:8080 http://localhost:3000/debug/pprof/heap
+```
+
+### Compare Profiles
+
+```bash
+# Take baseline
+curl http://localhost:3000/debug/pprof/heap > baseline.prof
+
+# ... run some operations ...
+
+# Take another snapshot
+curl http://localhost:3000/debug/pprof/heap > current.prof
+
+# Compare
+go tool pprof -base=baseline.prof current.prof
+```
+
+## Security Considerations
+
+- **Never expose pprof publicly in production** - it reveals sensitive application internals
+- Use authentication/authorization for pprof endpoints
+- Restrict access by IP address or network
+- Consider running pprof on a separate port
+- Use the `Next` function to conditionally enable/disable
+- Monitor access to pprof endpoints
+
+## Profiling Best Practices
+
+1. **CPU profiling**: Use for identifying hot code paths
+2. **Heap profiling**: Use for finding memory leaks
+3. **Goroutine profiling**: Use for detecting goroutine leaks
+4. **Block profiling**: Use for identifying synchronization bottlenecks
+5. **Mutex profiling**: Use for finding lock contention
+
+## Notes
+
+- CPU profiles are collected over a time period (default 30 seconds)
+- Heap profiles show current allocations
+- Profiling has minimal overhead but should be used carefully in production
+- The `Prefix` must start with `/` and must not end with `/`
+- Profiling data can be large - ensure adequate bandwidth

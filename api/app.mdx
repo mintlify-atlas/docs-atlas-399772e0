@@ -1,0 +1,564 @@
+---
+title: App API
+description: Complete reference for the Fiber App type and its methods.
+---
+
+The `App` type represents your Fiber application and provides methods for routing, configuration, and server lifecycle management.
+
+## Creating an App
+
+### New
+
+Creates a new Fiber application instance.
+
+```go
+func New(config ...Config) *App
+```
+
+<ParamField path="config" type="Config" optional>
+  Optional configuration for the app. See [fiber.mdx](/api/fiber) for all config options.
+</ParamField>
+
+<ResponseField name="*App" type="*App">
+  Returns a new Fiber application instance.
+</ResponseField>
+
+```go Example
+// Default config
+app := fiber.New()
+
+// With custom config
+app := fiber.New(fiber.Config{
+    CaseSensitive: true,
+    StrictRouting: true,
+    ServerHeader:  "Fiber",
+})
+```
+
+### NewWithCustomCtx
+
+Creates a new App with a custom context factory function.
+
+```go
+func NewWithCustomCtx(fn func(app *App) CustomCtx, config ...Config) *App
+```
+
+<ParamField path="fn" type="func(app *App) CustomCtx">
+  Factory function that creates custom context instances.
+</ParamField>
+
+<ParamField path="config" type="Config" optional>
+  Optional configuration for the app.
+</ParamField>
+
+<ResponseField name="*App" type="*App">
+  Returns a new Fiber application with custom context support.
+</ResponseField>
+
+```go Example
+type CustomCtx struct {
+    fiber.DefaultCtx
+}
+
+app := fiber.NewWithCustomCtx(func(app *fiber.App) fiber.CustomCtx {
+    return &CustomCtx{
+        DefaultCtx: *fiber.NewDefaultCtx(app),
+    }
+})
+```
+
+## Routing Methods
+
+### HTTP Method Handlers
+
+Register routes for specific HTTP methods.
+
+```go
+func (app *App) Get(path string, handlers ...Handler) Router
+func (app *App) Head(path string, handlers ...Handler) Router
+func (app *App) Post(path string, handlers ...Handler) Router
+func (app *App) Put(path string, handlers ...Handler) Router
+func (app *App) Delete(path string, handlers ...Handler) Router
+func (app *App) Connect(path string, handlers ...Handler) Router
+func (app *App) Options(path string, handlers ...Handler) Router
+func (app *App) Trace(path string, handlers ...Handler) Router
+func (app *App) Patch(path string, handlers ...Handler) Router
+```
+
+<ParamField path="path" type="string">
+  The route path pattern.
+</ParamField>
+
+<ParamField path="handlers" type="...Handler">
+  One or more handler functions.
+</ParamField>
+
+<ResponseField name="Router" type="Router">
+  Returns the Router instance for chaining.
+</ResponseField>
+
+```go Example
+app.Get("/", func(c fiber.Ctx) error {
+    return c.SendString("GET request")
+})
+
+app.Post("/user", func(c fiber.Ctx) error {
+    return c.SendString("POST request")
+})
+```
+
+### Use
+
+Register middleware or mount sub-applications.
+
+```go
+func (app *App) Use(args ...any) Router
+```
+
+<ParamField path="args" type="...any">
+  Can be middleware handlers, path prefix, or sub-applications.
+</ParamField>
+
+<ResponseField name="Router" type="Router">
+  Returns the Router instance for chaining.
+</ResponseField>
+
+```go Example
+// Global middleware
+app.Use(logger.New())
+
+// Prefixed middleware
+app.Use("/api", authMiddleware)
+
+// Mount sub-app
+micro := fiber.New()
+app.Use("/micro", micro)
+```
+
+### Group
+
+Create a route group with a common prefix.
+
+```go
+func (app *App) Group(prefix string, handlers ...any) Router
+```
+
+<ParamField path="prefix" type="string">
+  The prefix for all routes in the group.
+</ParamField>
+
+<ParamField path="handlers" type="...any" optional>
+  Optional middleware handlers for the group.
+</ParamField>
+
+<ResponseField name="Router" type="Router">
+  Returns the group Router instance.
+</ResponseField>
+
+```go Example
+api := app.Group("/api", authMiddleware)
+
+v1 := api.Group("/v1")
+v1.Get("/users", getUsers)     // /api/v1/users
+v1.Post("/users", createUser)  // /api/v1/users
+```
+
+### Route
+
+Define routes with a common prefix using a callback function.
+
+```go
+func (app *App) Route(prefix string, fn func(router Router), name ...string) Router
+```
+
+<ParamField path="prefix" type="string">
+  The prefix for all routes defined in the callback.
+</ParamField>
+
+<ParamField path="fn" type="func(router Router)">
+  Callback function that receives the router.
+</ParamField>
+
+<ParamField path="name" type="string" optional>
+  Optional name prefix for routes.
+</ParamField>
+
+<ResponseField name="Router" type="Router">
+  Returns the Router instance.
+</ResponseField>
+
+```go Example
+app.Route("/test", func(api fiber.Router) {
+    api.Get("/foo", handler).Name("foo") // /test/foo (name: test.foo)
+    api.Get("/bar", handler).Name("bar") // /test/bar (name: test.bar)
+}, "test.")
+```
+
+### RouteChain
+
+Create a chainable route for handling multiple HTTP methods.
+
+```go
+func (app *App) RouteChain(path string) Register
+```
+
+<ParamField path="path" type="string">
+  The route path.
+</ParamField>
+
+<ResponseField name="Register" type="Register">
+  Returns a Register interface for chaining method handlers.
+</ResponseField>
+
+```go Example
+app.RouteChain("/api").
+    Get(func(c fiber.Ctx) error {
+        return c.SendString("GET /api")
+    }).
+    Post(func(c fiber.Ctx) error {
+        return c.SendString("POST /api")
+    })
+```
+
+## Route Information
+
+### Stack
+
+Returns the raw router stack.
+
+```go
+func (app *App) Stack() [][]*Route
+```
+
+<ResponseField name="[][]*Route" type="[][]*Route">
+  Returns a 2D array of routes organized by HTTP method.
+</ResponseField>
+
+```go Example
+data, _ := json.MarshalIndent(app.Stack(), "", "  ")
+fmt.Println(string(data))
+```
+
+### GetRoutes
+
+Retrieve all registered routes.
+
+```go
+func (app *App) GetRoutes(filterUseOption ...bool) []Route
+```
+
+<ParamField path="filterUseOption" type="bool" optional>
+  When true, filters out routes registered by middleware.
+</ParamField>
+
+<ResponseField name="[]Route" type="[]Route">
+  Returns a slice of all routes.
+</ResponseField>
+
+```go Example
+routes := app.GetRoutes(true)
+for _, route := range routes {
+    fmt.Printf("%s %s\n", route.Method, route.Path)
+}
+```
+
+### GetRoute
+
+Retrieve a route by name.
+
+```go
+func (app *App) GetRoute(name string) Route
+```
+
+<ParamField path="name" type="string">
+  The route name.
+</ParamField>
+
+<ResponseField name="Route" type="Route">
+  Returns the named route.
+</ResponseField>
+
+```go Example
+app.Get("/", handler).Name("index")
+route := app.GetRoute("index")
+fmt.Println(route.Path) // "/"
+```
+
+### Name
+
+Assign a name to the last created route.
+
+```go
+func (app *App) Name(name string) Router
+```
+
+<ParamField path="name" type="string">
+  The name to assign to the route.
+</ParamField>
+
+<ResponseField name="Router" type="Router">
+  Returns the Router instance for chaining.
+</ResponseField>
+
+```go Example
+app.Get("/users/:id", handler).Name("user.show")
+```
+
+### HandlersCount
+
+Returns the number of registered handlers.
+
+```go
+func (app *App) HandlersCount() uint32
+```
+
+<ResponseField name="uint32" type="uint32">
+  Returns the total handler count.
+</ResponseField>
+
+### MountPath
+
+Returns the mount path of the application.
+
+```go
+func (app *App) MountPath() string
+```
+
+<ResponseField name="string" type="string">
+  Returns the mount path or empty string if not mounted.
+</ResponseField>
+
+```go Example
+subApp := fiber.New()
+app.Use("/api", subApp)
+fmt.Println(subApp.MountPath()) // "/api"
+```
+
+## Configuration & State
+
+### Config
+
+Returns the app configuration.
+
+```go
+func (app *App) Config() Config
+```
+
+<ResponseField name="Config" type="Config">
+  Returns a copy of the app configuration.
+</ResponseField>
+
+### Handler
+
+Returns the fasthttp request handler.
+
+```go
+func (app *App) Handler() fasthttp.RequestHandler
+```
+
+<ResponseField name="fasthttp.RequestHandler" type="fasthttp.RequestHandler">
+  Returns the handler compatible with fasthttp server.
+</ResponseField>
+
+### ErrorHandler
+
+Executes the configured error handler.
+
+```go
+func (app *App) ErrorHandler(ctx Ctx, err error) error
+```
+
+<ParamField path="ctx" type="Ctx">
+  The request context.
+</ParamField>
+
+<ParamField path="err" type="error">
+  The error to handle.
+</ParamField>
+
+<ResponseField name="error" type="error">
+  Returns an error if the handler fails.
+</ResponseField>
+
+## Server Lifecycle
+
+### Listen
+
+Start the server on the specified address.
+
+```go
+func (app *App) Listen(addr string, config ...ListenConfig) error
+```
+
+<ParamField path="addr" type="string">
+  The address to listen on (e.g., ":3000").
+</ParamField>
+
+<ParamField path="config" type="ListenConfig" optional>
+  Optional listen configuration.
+</ParamField>
+
+<ResponseField name="error" type="error">
+  Returns an error if the server fails to start.
+</ResponseField>
+
+```go Example
+if err := app.Listen(":3000"); err != nil {
+    log.Fatal(err)
+}
+```
+
+### Shutdown
+
+Gracefully shutdown the server.
+
+```go
+func (app *App) Shutdown() error
+```
+
+<ResponseField name="error" type="error">
+  Returns an error if shutdown fails.
+</ResponseField>
+
+### Test
+
+Test the app with a simulated HTTP request.
+
+```go
+func (app *App) Test(req *http.Request, config ...TestConfig) (*http.Response, error)
+```
+
+<ParamField path="req" type="*http.Request">
+  The HTTP request to test.
+</ParamField>
+
+<ParamField path="config" type="TestConfig" optional>
+  Optional test configuration (timeout, etc.).
+</ParamField>
+
+<ResponseField name="*http.Response" type="*http.Response">
+  Returns the HTTP response.
+</ResponseField>
+
+<ResponseField name="error" type="error">
+  Returns an error if the test fails.
+</ResponseField>
+
+```go Example
+req := httptest.NewRequest("GET", "/", nil)
+resp, err := app.Test(req)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+## Hooks
+
+### Hooks
+
+Returns the hooks manager.
+
+```go
+func (app *App) Hooks() *Hooks
+```
+
+<ResponseField name="*Hooks" type="*Hooks">
+  Returns the hooks manager instance.
+</ResponseField>
+
+```go Example
+app.Hooks().OnListen(func(data fiber.ListenData) error {
+    fmt.Printf("Listening on %s:%s\n", data.Host, data.Port)
+    return nil
+})
+```
+
+## Advanced
+
+### RegisterCustomBinder
+
+Register a custom binder for request body parsing.
+
+```go
+func (app *App) RegisterCustomBinder(binder CustomBinder)
+```
+
+<ParamField path="binder" type="CustomBinder">
+  The custom binder implementation.
+</ParamField>
+
+### RegisterCustomConstraint
+
+Register a custom route constraint.
+
+```go
+func (app *App) RegisterCustomConstraint(constraint CustomConstraint)
+```
+
+<ParamField path="constraint" type="CustomConstraint">
+  The custom constraint implementation.
+</ParamField>
+
+### RebuildTree
+
+Rebuild the routing tree (for dynamic route registration).
+
+```go
+func (app *App) RebuildTree() *App
+```
+
+<ResponseField name="*App" type="*App">
+  Returns the app instance for chaining.
+</ResponseField>
+
+<Warning>
+This method is not thread-safe and should only be used in development mode.
+</Warning>
+
+### RemoveRoute
+
+Remove a route by path.
+
+```go
+func (app *App) RemoveRoute(path string, methods ...string)
+```
+
+<ParamField path="path" type="string">
+  The route path to remove.
+</ParamField>
+
+<ParamField path="methods" type="...string" optional>
+  Optional HTTP methods. If omitted, removes for all methods.
+</ParamField>
+
+### GetString
+
+Returns a string respecting the Immutable setting.
+
+```go
+func (app *App) GetString(s string) string
+```
+
+<ParamField path="s" type="string">
+  The input string.
+</ParamField>
+
+<ResponseField name="string" type="string">
+  Returns the string (cloned if Immutable is enabled).
+</ResponseField>
+
+### GetBytes
+
+Returns a byte slice respecting the Immutable setting.
+
+```go
+func (app *App) GetBytes(b []byte) []byte
+```
+
+<ParamField path="b" type="[]byte">
+  The input byte slice.
+</ParamField>
+
+<ResponseField name="[]byte" type="[]byte">
+  Returns the byte slice (cloned if Immutable is enabled).
+</ResponseField>

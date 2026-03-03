@@ -1,0 +1,275 @@
+---
+title: Helmet
+description: Secure your application by setting common security headers
+---
+
+Helmet middleware helps secure your Fiber applications by setting various HTTP security headers to protect against common web vulnerabilities.
+
+## Installation
+
+```bash
+go get -u github.com/gofiber/fiber/v3
+go get -u github.com/gofiber/fiber/v3/middleware/helmet
+```
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Usage
+
+### Basic Usage
+
+```go
+package main
+
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/helmet"
+)
+
+func main() {
+    app := fiber.New()
+
+    // Use default security headers
+    app.Use(helmet.New())
+
+    app.Get("/", func(c fiber.Ctx) error {
+        return c.SendString("Welcome!")
+    })
+
+    app.Listen(":3000")
+}
+```
+
+### Custom Configuration
+
+```go
+app.Use(helmet.New(helmet.Config{
+    XSSProtection:             "1; mode=block",
+    ContentTypeNosniff:        "nosniff",
+    XFrameOptions:             "DENY",
+    ReferrerPolicy:            "strict-origin-when-cross-origin",
+    ContentSecurityPolicy:     "default-src 'self'",
+    PermissionPolicy:          "geolocation=(self)",
+}))
+```
+
+### HSTS Configuration
+
+```go
+app.Use(helmet.New(helmet.Config{
+    HSTSMaxAge:            31536000, // 1 year in seconds
+    HSTSExcludeSubdomains: false,
+    HSTSPreloadEnabled:    true,
+}))
+```
+
+### Content Security Policy
+
+```go
+app.Use(helmet.New(helmet.Config{
+    ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'",
+    CSPReportOnly:         false, // Set to true for report-only mode
+}))
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+  Function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="XSSProtection" type="string" default="0'">
+  Value for the `X-XSS-Protection` header. Modern browsers use CSP instead.
+</ParamField>
+
+<ParamField path="ContentTypeNosniff" type="string" default="nosniff'">
+  Value for the `X-Content-Type-Options` header. Prevents MIME type sniffing.
+</ParamField>
+
+<ParamField path="XFrameOptions" type="string" default="SAMEORIGIN'">
+  Value for the `X-Frame-Options` header. Possible values: `SAMEORIGIN`, `DENY`, `ALLOW-FROM uri`.
+</ParamField>
+
+<ParamField path="HSTSMaxAge" type="int" default="0">
+  `max-age` value in seconds for the `Strict-Transport-Security` header. Set to 0 to disable HSTS.
+</ParamField>
+
+<ParamField path="HSTSExcludeSubdomains" type="bool" default="false">
+  When set to true, the `includeSubDomains` directive is not added to HSTS header.
+</ParamField>
+
+<ParamField path="ContentSecurityPolicy" type="string" default="'">
+  Value for the `Content-Security-Policy` header. Empty string disables CSP.
+</ParamField>
+
+<ParamField path="CSPReportOnly" type="bool" default="false">
+  When true, uses `Content-Security-Policy-Report-Only` header instead.
+</ParamField>
+
+<ParamField path="HSTSPreloadEnabled" type="bool" default="false">
+  When true, adds the `preload` directive to HSTS header.
+</ParamField>
+
+<ParamField path="ReferrerPolicy" type="string" default="no-referrer'">
+  Value for the `Referrer-Policy` header.
+</ParamField>
+
+<ParamField path="PermissionPolicy" type="string" default="'">
+  Value for the `Permissions-Policy` header (formerly Feature-Policy).
+</ParamField>
+
+<ParamField path="CrossOriginEmbedderPolicy" type="string" default="require-corp'">
+  Value for the `Cross-Origin-Embedder-Policy` header.
+</ParamField>
+
+<ParamField path="CrossOriginOpenerPolicy" type="string" default="same-origin'">
+  Value for the `Cross-Origin-Opener-Policy` header.
+</ParamField>
+
+<ParamField path="CrossOriginResourcePolicy" type="string" default="same-origin'">
+  Value for the `Cross-Origin-Resource-Policy` header.
+</ParamField>
+
+<ParamField path="OriginAgentCluster" type="string" default="?1'">
+  Value for the `Origin-Agent-Cluster` header.
+</ParamField>
+
+<ParamField path="XDNSPrefetchControl" type="string" default="off'">
+  Value for the `X-DNS-Prefetch-Control` header.
+</ParamField>
+
+<ParamField path="XDownloadOptions" type="string" default="noopen'">
+  Value for the `X-Download-Options` header.
+</ParamField>
+
+<ParamField path="XPermittedCrossDomain" type="string" default="none'">
+  Value for the `X-Permitted-Cross-Domain-Policies` header.
+</ParamField>
+
+## Default Configuration
+
+```go
+var ConfigDefault = Config{
+    XSSProtection:             "0",
+    ContentTypeNosniff:        "nosniff",
+    XFrameOptions:             "SAMEORIGIN",
+    ReferrerPolicy:            "no-referrer",
+    CrossOriginEmbedderPolicy: "require-corp",
+    CrossOriginOpenerPolicy:   "same-origin",
+    CrossOriginResourcePolicy: "same-origin",
+    OriginAgentCluster:        "?1",
+    XDNSPrefetchControl:       "off",
+    XDownloadOptions:          "noopen",
+    XPermittedCrossDomain:     "none",
+}
+```
+
+## Best Practices
+
+### Production Configuration
+
+```go
+app.Use(helmet.New(helmet.Config{
+    // HSTS: Force HTTPS for 1 year, include subdomains, allow preload
+    HSTSMaxAge:            31536000,
+    HSTSExcludeSubdomains: false,
+    HSTSPreloadEnabled:    true,
+
+    // CSP: Restrict resource loading
+    ContentSecurityPolicy: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+
+    // Frame protection
+    XFrameOptions: "DENY",
+
+    // Referrer policy
+    ReferrerPolicy: "strict-origin-when-cross-origin",
+
+    // Permission policy
+    PermissionPolicy: "geolocation=(), microphone=(), camera=()",
+}))
+```
+
+### Testing CSP with Report-Only Mode
+
+```go
+app.Use(helmet.New(helmet.Config{
+    ContentSecurityPolicy: "default-src 'self'; report-uri /csp-violation-report",
+    CSPReportOnly:         true, // Won't block, only reports violations
+}))
+
+// Handle CSP violation reports
+app.Post("/csp-violation-report", func(c fiber.Ctx) error {
+    // Log the violation
+    log.Printf("CSP Violation: %s", c.Body())
+    return c.SendStatus(fiber.StatusNoContent)
+})
+```
+
+## Common Patterns
+
+### API-Only Application
+
+```go
+// Minimal headers for API endpoints
+app.Use(helmet.New(helmet.Config{
+    ContentTypeNosniff:        "nosniff",
+    XFrameOptions:             "DENY",
+    ReferrerPolicy:            "no-referrer",
+    CrossOriginResourcePolicy: "same-origin",
+}))
+```
+
+### Conditionally Apply Headers
+
+```go
+app.Use(helmet.New(helmet.Config{
+    Next: func(c fiber.Ctx) bool {
+        // Skip helmet for webhook endpoints
+        return c.Path() == "/webhooks/github"
+    },
+}))
+```
+
+### Disable Specific Headers
+
+```go
+app.Use(helmet.New(helmet.Config{
+    XSSProtection:  "", // Disable by setting empty string
+    XFrameOptions:  "", // Disable X-Frame-Options
+}))
+```
+
+## Testing
+
+```bash
+# Check headers
+curl -I http://localhost:3000
+
+# Expected response headers:
+HTTP/1.1 200 OK
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+Referrer-Policy: no-referrer
+Cross-Origin-Embedder-Policy: require-corp
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: same-origin
+Origin-Agent-Cluster: ?1
+X-Dns-Prefetch-Control: off
+X-Download-Options: noopen
+X-Permitted-Cross-Domain-Policies: none
+X-Xss-Protection: 0
+```
+
+## Security Headers Explained
+
+- **X-Content-Type-Options**: Prevents browsers from MIME-sniffing responses
+- **X-Frame-Options**: Protects against clickjacking attacks
+- **Strict-Transport-Security**: Enforces HTTPS connections
+- **Content-Security-Policy**: Controls which resources the browser can load
+- **Referrer-Policy**: Controls how much referrer information is shared
+- **Permissions-Policy**: Controls which browser features can be used
+- **Cross-Origin-*-Policy**: Provides isolation between cross-origin resources

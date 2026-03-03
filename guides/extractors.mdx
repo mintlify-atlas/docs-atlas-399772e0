@@ -1,0 +1,460 @@
+---
+title: Data Extractors
+description: Learn how to use Fiber's extractor utilities to retrieve values from headers, cookies, query parameters, and more
+---
+
+## Overview
+
+The `extractors` package provides standardized value extraction utilities for Fiber middleware. Extractors help you retrieve data from various HTTP request sources with consistent behavior, security awareness, and RFC compliance.
+
+<Note>
+Extractors are primarily used by middleware (KeyAuth, Session, CSRF) but can also be used in your application code.
+</Note>
+
+## Why Use Extractors?
+
+Extractors provide several benefits:
+
+- **Consistency** - Same extraction logic across all middleware
+- **Security Awareness** - Built-in warnings for insecure patterns
+- **RFC Compliance** - Standards-compliant parsing (Authorization header, token validation)
+- **Fallback Support** - Try multiple sources with automatic fallback
+- **Source Tracking** - Know where values came from for security decisions
+
+## Available Extractors
+
+### FromHeader
+
+Extract values from HTTP headers:
+
+```go
+import "github.com/gofiber/fiber/v3/extractors"
+
+app.Use(func(c fiber.Ctx) error {
+    extractor := extractors.FromHeader("X-API-Key")
+    apiKey, err := extractor.Extract(c)
+    
+    if err == extractors.ErrNotFound {
+        return c.Status(401).SendString("API key required")
+    }
+    
+    // Use apiKey for authentication
+    return c.Next()
+})
+```
+
+### FromAuthHeader
+
+Extract from Authorization header with RFC 9110/7235 compliance:
+
+```go
+// Extract Bearer token
+extractor := extractors.FromAuthHeader("Bearer")
+token, err := extractor.Extract(c)
+
+// Input: "Authorization: Bearer abc123"
+// Output: "abc123"
+
+// Validates token68 format:
+// ✅ "Bearer abc123" -> "abc123"
+// ✅ "Bearer token-123.xyz" -> "token-123.xyz"  
+// ❌ "Bearer abc def" -> ErrNotFound (space in token)
+// ❌ "Bearer ab=cd" -> ErrNotFound (padding in middle)
+```
+
+#### Token Validation
+
+The Authorization header extractor enforces strict RFC compliance:
+
+- **Allowed characters**: A-Z, a-z, 0-9, -, ., _, ~, +, /, =
+- **Padding rules**: = only at the end
+- **Whitespace**: Only single space between scheme and token
+- **Case-insensitive**: Scheme matching (Bearer/bearer/BEARER)
+
+```go
+// Raw header extraction (no validation)
+extractor := extractors.FromAuthHeader("")
+value, _ := extractor.Extract(c)
+
+// Input: "Authorization: CustomScheme anything goes"
+// Output: "CustomScheme anything goes"
+```
+
+### FromCookie
+
+Extract values from cookies:
+
+```go
+extractor := extractors.FromCookie("session_id")
+sessionID, err := extractor.Extract(c)
+
+if err != nil {
+    return c.Status(401).SendString("Session required")
+}
+```
+
+### FromQuery
+
+Extract from URL query parameters:
+
+```go
+extractor := extractors.FromQuery("token")
+token, err := extractor.Extract(c)
+
+// URL: /api/data?token=abc123
+// Output: "abc123"
+```
+
+<Warning>
+Query parameters appear in URLs, which can leak sensitive data through logs, browser history, and referrer headers. Use headers or cookies for sensitive values.
+</Warning>
+
+### FromParam
+
+Extract from URL path parameters:
+
+```go
+// Route: /users/:userId
+extractor := extractors.FromParam("userId")
+userID, err := extractor.Extract(c)
+
+// URL: /users/123
+// Output: "123"
+```
+
+### FromForm
+
+Extract from form data:
+
+```go
+extractor := extractors.FromForm("username")
+username, err := extractor.Extract(c)
+
+// Form: username=john&password=secret
+// Output: "john"
+```
+
+### FromCustom
+
+Create custom extraction logic:
+
+```go
+extractor := extractors.FromCustom("computed", func(c fiber.Ctx) (string, error) {
+    // Complex extraction logic
+    if value := c.Locals("computed_token"); value != nil {
+        return value.(string), nil
+    }
+    
+    // Fallback to environment
+    if token := os.Getenv("DEFAULT_TOKEN"); token != "" {
+        return token, nil
+    }
+    
+    return "", extractors.ErrNotFound
+})
+
+value, err := extractor.Extract(c)
+```
+
+<Warning>
+Custom extractors break source awareness. Middleware cannot determine security implications or provide source-based warnings.
+</Warning>
+
+## Chaining Extractors
+
+The `Chain` function tries multiple extractors in order:
+
+```go
+// Try header first, then cookie, then query
+extractor := extractors.Chain(
+    extractors.FromHeader("X-API-Key"),
+    extractors.FromCookie("api_key"),
+    extractors.FromQuery("api_key"),
+)
+
+apiKey, err := extractor.Extract(c)
+if err != nil {
+    return c.Status(401).SendString("API key required")
+}
+```
+
+### Chain Behavior
+
+- Returns first successful extraction (non-empty value, no error)
+- Skips extractors with nil Extract functions
+- Returns last error if all fail
+- Returns `ErrNotFound` if no extractors provided
+
+```go
+// Chain stops at first success
+extractor := extractors.Chain(
+    extractors.FromHeader("X-Key"),   // Not found
+    extractors.FromCookie("key"),     // Found: "abc123" ✓ (returns this)
+    extractors.FromQuery("key"),      // Never checked
+)
+```
+
+## Middleware Integration
+
+### KeyAuth Middleware
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/keyauth"
+    "github.com/gofiber/fiber/v3/extractors"
+)
+
+app.Use(keyauth.New(keyauth.Config{
+    // Try multiple sources
+    Extractor: extractors.Chain(
+        extractors.FromAuthHeader("Bearer"),
+        extractors.FromHeader("X-API-Key"),
+        extractors.FromQuery("api_key"),
+    ),
+    
+    Validator: func(c fiber.Ctx, key string) (bool, error) {
+        return key == "valid-key", nil
+    },
+}))
+```
+
+### Session Middleware
+
+```go
+import (
+    "github.com/gofiber/fiber/v3/middleware/session"
+    "github.com/gofiber/fiber/v3/extractors"
+)
+
+store := session.New(session.Config{
+    Extractor: extractors.FromCookie("session_id"),
+})
+
+app.Get("/profile", func(c fiber.Ctx) error {
+    sess, err := store.Get(c)
+    if err != nil {
+        return err
+    }
+    
+    userID := sess.Get("user_id")
+    return c.JSON(fiber.Map{"user_id": userID})
+})
+```
+
+### CSRF Middleware
+
+```go
+import (
+    "github.com/gofiber/fiber/v3/middleware/csrf"
+    "github.com/gofiber/fiber/v3/extractors"
+)
+
+app.Use(csrf.New(csrf.Config{
+    // Prefer header, fallback to form
+    Extractor: extractors.Chain(
+        extractors.FromHeader("X-CSRF-Token"),
+        extractors.FromForm("_csrf"),
+    ),
+}))
+```
+
+## Security Considerations
+
+### Source Security Characteristics
+
+**Headers** (Most Secure)
+- Not visible in URLs
+- Not logged by default
+- May be stripped by proxies
+- Best for: API keys, auth tokens
+
+**Cookies** (Good for Sessions)
+- Secure with proper flags (Secure, HttpOnly, SameSite)
+- Automatically sent by browsers
+- Protected from JavaScript (with HttpOnly)
+- Best for: Session IDs, remember-me tokens
+
+**Query Parameters** (Use Sparingly)
+- Visible in URLs
+- Logged by servers/proxies
+- Stored in browser history
+- Sent in Referer headers
+- Best for: Non-sensitive parameters, public identifiers
+
+**Form Data** (Context Dependent)
+- Not visible in URLs (if POST)
+- May be logged
+- Requires correct content type
+- Best for: User input, file uploads
+
+### Ordering Strategy
+
+Order extractors by security preference:
+
+```go
+// Good: Most secure first
+extractors.Chain(
+    extractors.FromAuthHeader("Bearer"),    // Most secure
+    extractors.FromHeader("X-API-Key"),     // Secure
+    extractors.FromCookie("auth_token"),    // Moderately secure
+    extractors.FromQuery("token"),          // Least secure
+)
+
+// Bad: Least secure first
+extractors.Chain(
+    extractors.FromQuery("token"),          // Will leak in logs!
+    extractors.FromAuthHeader("Bearer"),    // Never reached if query exists
+)
+```
+
+### Common Security Issues
+
+**API Keys in URLs**
+```go
+// ❌ DON'T: API keys visible in logs
+app.Use(keyauth.New(keyauth.Config{
+    Extractor: extractors.FromQuery("api_key"),
+}))
+
+// ✅ DO: API keys in headers
+app.Use(keyauth.New(keyauth.Config{
+    Extractor: extractors.FromHeader("X-API-Key"),
+}))
+```
+
+**Session Tokens in Query Parameters**
+```go
+// ❌ DON'T: Session tokens can be bookmarked
+store := session.New(session.Config{
+    Extractor: extractors.FromQuery("session"),
+})
+
+// ✅ DO: Session tokens in cookies
+store := session.New(session.Config{
+    Extractor: extractors.FromCookie("session_id"),
+})
+```
+
+## Advanced Usage
+
+### Inspecting Extractors
+
+Extractors provide metadata for introspection:
+
+```go
+extractor := extractors.Chain(
+    extractors.FromHeader("X-Key"),
+    extractors.FromCookie("key"),
+)
+
+fmt.Println("Primary source:", extractor.Source)  // SourceHeader
+fmt.Println("Primary key:", extractor.Key)        // "X-Key"
+fmt.Println("Chain length:", len(extractor.Chain)) // 2
+
+for i, e := range extractor.Chain {
+    fmt.Printf("Extractor %d: source=%v, key=%s\n", i, e.Source, e.Key)
+}
+```
+
+### Source Constants
+
+```go
+const (
+    SourceHeader     Source = iota  // HTTP headers
+    SourceAuthHeader                // Authorization header
+    SourceForm                      // Form data
+    SourceQuery                     // Query parameters
+    SourceParam                     // URL parameters
+    SourceCookie                    // Cookies
+    SourceCustom                    // Custom extraction
+)
+```
+
+### Conditional Extraction
+
+```go
+extractor := extractors.FromCustom("conditional", func(c fiber.Ctx) (string, error) {
+    // Use different sources based on client type
+    if c.Get("User-Agent") == "MobileApp/1.0" {
+        return c.Get("X-Mobile-Token"), nil
+    }
+    
+    return c.Cookies("web_session"), nil
+})
+```
+
+## Best Practices
+
+1. **Use HTTPS** - Encrypt all traffic to protect extracted values
+2. **Choose appropriate sources** - Match source to security requirements  
+3. **Order chains by security** - Most secure sources first
+4. **Validate extracted values** - Always validate and sanitize
+5. **Avoid query parameters for secrets** - Use headers or cookies
+6. **Document your API** - Specify where clients should send values
+7. **Monitor extraction failures** - Track patterns of missing values
+8. **Use standard headers** - Follow conventions (Authorization, X-API-Key)
+
+## Troubleshooting
+
+### Value Not Found
+
+```go
+extractor := extractors.FromHeader("X-API-Key")
+value, err := extractor.Extract(c)
+
+if err == extractors.ErrNotFound {
+    // Check request headers
+    fmt.Println("Headers:", c.GetReqHeaders())
+    
+    // Verify header name (case-insensitive)
+    fmt.Println("X-API-Key:", c.Get("X-API-Key"))
+    fmt.Println("x-api-key:", c.Get("x-api-key"))
+}
+```
+
+### Chain Not Working
+
+```go
+extractor := extractors.Chain(
+    extractors.FromHeader("X-Key"),
+    extractors.FromCookie("key"),
+)
+
+value, err := extractor.Extract(c)
+
+if err != nil {
+    // Debug each extractor
+    for i, e := range extractor.Chain {
+        v, err := e.Extract(c)
+        fmt.Printf("Extractor %d: value=%q, error=%v\n", i, v, err)
+    }
+}
+```
+
+### Authorization Header Validation
+
+```go
+extractor := extractors.FromAuthHeader("Bearer")
+token, err := extractor.Extract(c)
+
+if err == extractors.ErrNotFound {
+    // Check header format
+    authHeader := c.Get("Authorization")
+    fmt.Println("Raw header:", authHeader)
+    
+    // Common issues:
+    // - Missing space: "Bearertoken"
+    // - Wrong scheme: "Basic abc123"
+    // - Invalid characters: "Bearer abc def"
+    // - Padding in middle: "Bearer ab=cd"
+}
+```
+
+## See Also
+
+- [KeyAuth Middleware](/api/middleware/keyauth)
+- [Session Middleware](/api/middleware/session)
+- [CSRF Middleware](/api/middleware/csrf)
+- [RFC 9110 - HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110)
+- [RFC 7235 - HTTP Authentication](https://www.rfc-editor.org/rfc/rfc7235)

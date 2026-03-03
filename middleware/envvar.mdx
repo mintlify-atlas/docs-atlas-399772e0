@@ -1,0 +1,160 @@
+---
+title: EnvVar
+description: Environment variable exposure middleware for Fiber
+---
+
+EnvVar middleware for Fiber exposes environment variables with configurable options.
+
+<Note>
+Mount the middleware on a path; it cannot be used without one.
+</Note>
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+```
+
+## Usage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/envvar"
+)
+```
+
+### Basic Example
+
+```go
+// Initialize default config (exports no variables)
+app.Use("/expose/envvars", envvar.New())
+
+// Or extend your config for customization
+app.Use("/expose/envvars", envvar.New(
+    envvar.Config{
+        ExportVars: map[string]string{"testKey": "", "testDefaultKey": "testDefaultVal"},
+    }),
+)
+```
+
+### Response Format
+
+Sample response:
+
+```json
+{
+  "vars": {
+    "testKey": "testValue",
+    "testDefaultKey": "testDefaultVal"
+  }
+}
+```
+
+### Expose Specific Variables
+
+```go
+app.Use("/env", envvar.New(envvar.Config{
+    ExportVars: map[string]string{
+        "APP_ENV":     "",
+        "APP_VERSION": "1.0.0", // Default value if not set
+        "DEBUG_MODE":  "false",
+    },
+}))
+```
+
+## Configuration
+
+<ParamField path="ExportVars" type="map[string]string" default="nil">
+Lists the environment variables to expose. The key is the environment variable name, and the value is the default value to use if the variable is not set.
+</ParamField>
+
+## Default Config
+
+```go
+Config{}
+// Exports no environment variables
+```
+
+## Common Use Cases
+
+### Health Check Endpoint with Version Info
+
+```go
+app.Use("/health", envvar.New(envvar.Config{
+    ExportVars: map[string]string{
+        "APP_VERSION": "unknown",
+        "BUILD_TIME":  "unknown",
+        "GIT_COMMIT":  "unknown",
+    },
+}))
+```
+
+### Development Environment Info
+
+```go
+if os.Getenv("ENV") == "development" {
+    app.Use("/debug/env", envvar.New(envvar.Config{
+        ExportVars: map[string]string{
+            "GO_VERSION":  "",
+            "GOARCH":      "",
+            "GOOS":        "",
+            "DATABASE_URL": "hidden", // Don't expose actual value
+        },
+    }))
+}
+```
+
+### Feature Flags
+
+```go
+app.Use("/api/features", envvar.New(envvar.Config{
+    ExportVars: map[string]string{
+        "FEATURE_NEW_UI":       "false",
+        "FEATURE_BETA_ACCESS":  "false",
+        "FEATURE_ANALYTICS":    "true",
+    },
+}))
+```
+
+### Configuration Discovery
+
+```go
+app.Use("/config", envvar.New(envvar.Config{
+    ExportVars: map[string]string{
+        "API_TIMEOUT":        "30",
+        "MAX_UPLOAD_SIZE":    "10485760",
+        "RATE_LIMIT":         "100",
+    },
+}))
+```
+
+## Security Considerations
+
+<Warning>
+**Never expose sensitive information:**
+
+- Do not expose actual database passwords, API keys, or secrets
+- Use this middleware only for non-sensitive configuration
+- Protect the endpoint with authentication in production
+- Consider IP whitelisting for sensitive environments
+</Warning>
+
+### Protected Endpoint Example
+
+```go
+// Only accessible from localhost
+app.Use("/internal/env", func(c fiber.Ctx) error {
+    if c.IP() != "127.0.0.1" {
+        return c.SendStatus(fiber.StatusForbidden)
+    }
+    return c.Next()
+})
+
+app.Use("/internal/env", envvar.New(envvar.Config{
+    ExportVars: map[string]string{
+        "APP_ENV":     "",
+        "APP_VERSION": "",
+    },
+}))
+```

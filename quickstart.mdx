@@ -1,80 +1,434 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start guide
+description: Build your first Fiber web application with routing, middleware, and JSON responses in minutes.
 ---
 
-## Get started in three steps
+# Quick start guide
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through building a complete Fiber application with routing, middleware, and JSON responses.
 
-### Step 1: Set up your local environment
+## Your first Fiber app
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Steps>
+  <Step title="Create the project">
+    Set up a new Fiber project:
 
-### Step 2: Deploy your changes
+    ```bash
+    mkdir fiber-quickstart
+    cd fiber-quickstart
+    go mod init example.com/quickstart
+    go get -u github.com/gofiber/fiber/v3
+    ```
+  </Step>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  <Step title="Create main.go">
+    Create a `main.go` file with a basic server:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    ```go main.go
+    package main
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    import (
+        "log"
 
-### Step 3: Go live
+        "github.com/gofiber/fiber/v3"
+    )
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    func main() {
+        // Initialize a new Fiber app
+        app := fiber.New()
+
+        // Define a route for the GET method on the root path '/'
+        app.Get("/", func(c fiber.Ctx) error {
+            return c.SendString("Hello, World 👋!")
+        })
+
+        // Start the server on port 3000
+        log.Fatal(app.Listen(":3000"))
+    }
+    ```
+  </Step>
+
+  <Step title="Run the application">
+    Start your server:
+
+    ```bash
+    go run main.go
+    ```
+
+    Visit `http://localhost:3000` and you'll see "Hello, World 👋!".
+  </Step>
+</Steps>
+
+## Adding routes
+
+Let's expand our application with more routes and different HTTP methods:
+
+```go main.go
+package main
+
+import (
+    "fmt"
+    "log"
+
+    "github.com/gofiber/fiber/v3"
+)
+
+func main() {
+    app := fiber.New()
+
+    // GET /api/register
+    app.Get("/api/*", func(c fiber.Ctx) error {
+        msg := fmt.Sprintf("✋ %s", c.Params("*"))
+        return c.SendString(msg) // => ✋ register
+    })
+
+    // GET /flights/LAX-SFO
+    app.Get("/flights/:from-:to", func(c fiber.Ctx) error {
+        msg := fmt.Sprintf("💸 From: %s, To: %s", c.Params("from"), c.Params("to"))
+        return c.SendString(msg) // => 💸 From: LAX, To: SFO
+    })
+
+    // GET /dictionary.txt
+    app.Get("/:file.:ext", func(c fiber.Ctx) error {
+        msg := fmt.Sprintf("📃 %s.%s", c.Params("file"), c.Params("ext"))
+        return c.SendString(msg) // => 📃 dictionary.txt
+    })
+
+    // GET /john/75
+    app.Get("/:name/:age/:gender?", func(c fiber.Ctx) error {
+        msg := fmt.Sprintf("👴 %s is %s years old", c.Params("name"), c.Params("age"))
+        return c.SendString(msg) // => 👴 john is 75 years old
+    })
+
+    log.Fatal(app.Listen(":3000"))
+}
+```
+
+<Note>
+  Route parameters are defined with `:name` syntax. Optional parameters use `?` suffix. Wildcards use `*`.
+</Note>
+
+## Working with JSON
+
+Fiber makes it easy to work with JSON data:
+
+```go main.go
+package main
+
+import (
+    "log"
+
+    "github.com/gofiber/fiber/v3"
+)
+
+type User struct {
+    Name string `json:"name"`
+    Age  int    `json:"age"`
+}
+
+func main() {
+    app := fiber.New()
+
+    // Return JSON object
+    app.Get("/user", func(c fiber.Ctx) error {
+        return c.JSON(&User{"John", 20})
+        // => {"name":"John", "age":20}
+    })
+
+    // Return JSON map
+    app.Get("/api/status", func(c fiber.Ctx) error {
+        return c.JSON(fiber.Map{
+            "success": true,
+            "message": "API is running",
+        })
+        // => {"success":true, "message":"API is running"}
+    })
+
+    // Parse JSON request body
+    app.Post("/user", func(c fiber.Ctx) error {
+        user := new(User)
+
+        if err := c.Bind().JSON(user); err != nil {
+            return err
+        }
+
+        return c.JSON(fiber.Map{
+            "success": true,
+            "user":    user,
+        })
+    })
+
+    log.Fatal(app.Listen(":3000"))
+}
+```
+
+## Adding middleware
+
+Middleware functions execute before your route handlers. Let's add some common middleware:
+
+<Steps>
+  <Step title="Install middleware packages">
+    ```bash
+    go get -u github.com/gofiber/fiber/v3/middleware/logger
+    go get -u github.com/gofiber/fiber/v3/middleware/cors
+    go get -u github.com/gofiber/fiber/v3/middleware/recover
+    ```
+  </Step>
+
+  <Step title="Use middleware in your app">
+    ```go main.go
+    package main
+
+    import (
+        "fmt"
+        "log"
+
+        "github.com/gofiber/fiber/v3"
+        "github.com/gofiber/fiber/v3/middleware/cors"
+        "github.com/gofiber/fiber/v3/middleware/logger"
+        "github.com/gofiber/fiber/v3/middleware/recover"
+    )
+
+    func main() {
+        app := fiber.New()
+
+        // Recover middleware recovers from panics
+        app.Use(recover.New())
+
+        // Logger middleware logs HTTP requests
+        app.Use(logger.New())
+
+        // CORS middleware enables cross-origin requests
+        app.Use(cors.New())
+
+        // Custom middleware
+        app.Use(func(c fiber.Ctx) error {
+            fmt.Println("🥇 First handler")
+            return c.Next()
+        })
+
+        // Route-specific middleware
+        app.Use("/api", func(c fiber.Ctx) error {
+            fmt.Println("🥈 Second handler")
+            return c.Next()
+        })
+
+        // Routes
+        app.Get("/api/list", func(c fiber.Ctx) error {
+            fmt.Println("🥉 Last handler")
+            return c.SendString("Hello, World 👋!")
+        })
+
+        log.Fatal(app.Listen(":3000"))
+    }
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  Middleware executes in the order it's defined. Call `c.Next()` to pass control to the next middleware or handler.
+</Note>
+
+## Grouping routes
+
+Organize your routes using groups:
+
+```go main.go
+package main
+
+import (
+    "log"
+
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/logger"
+)
+
+func main() {
+    app := fiber.New()
+
+    // Root API group
+    api := app.Group("/api", logger.New()) // /api
+
+    // API v1 routes
+    v1 := api.Group("/v1") // /api/v1
+    v1.Get("/list", func(c fiber.Ctx) error {
+        return c.SendString("List v1")
+    }) // /api/v1/list
+    v1.Get("/user", func(c fiber.Ctx) error {
+        return c.SendString("User v1")
+    }) // /api/v1/user
+
+    // API v2 routes
+    v2 := api.Group("/v2") // /api/v2
+    v2.Get("/list", func(c fiber.Ctx) error {
+        return c.SendString("List v2")
+    }) // /api/v2/list
+    v2.Get("/user", func(c fiber.Ctx) error {
+        return c.SendString("User v2")
+    }) // /api/v2/user
+
+    log.Fatal(app.Listen(":3000"))
+}
+```
+
+## Error handling
+
+Handle errors gracefully with a custom error handler:
+
+```go main.go
+package main
+
+import (
+    "errors"
+    "log"
+
+    "github.com/gofiber/fiber/v3"
+)
+
+func main() {
+    app := fiber.New(fiber.Config{
+        ErrorHandler: func(c fiber.Ctx, err error) error {
+            code := fiber.StatusInternalServerError
+
+            var e *fiber.Error
+            if errors.As(err, &e) {
+                code = e.Code
+            }
+
+            return c.Status(code).JSON(fiber.Map{
+                "error": err.Error(),
+            })
+        },
+    })
+
+    app.Get("/", func(c fiber.Ctx) error {
+        return c.SendString("Hello, World!")
+    })
+
+    // Return custom error
+    app.Get("/error", func(c fiber.Ctx) error {
+        return fiber.NewError(fiber.StatusBadRequest, "Custom error message")
+    })
+
+    // 404 handler
+    app.Use(func(c fiber.Ctx) error {
+        return fiber.NewError(fiber.StatusNotFound, "Route not found")
+    })
+
+    log.Fatal(app.Listen(":3000"))
+}
+```
+
+## Complete example
+
+Here's a complete RESTful API example:
+
+```go main.go
+package main
+
+import (
+    "log"
+
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/cors"
+    "github.com/gofiber/fiber/v3/middleware/logger"
+    "github.com/gofiber/fiber/v3/middleware/recover"
+)
+
+type User struct {
+    ID   int    `json:"id"`
+    Name string `json:"name"`
+    Age  int    `json:"age"`
+}
+
+var users = []User{
+    {ID: 1, Name: "John", Age: 30},
+    {ID: 2, Name: "Jane", Age: 25},
+}
+
+func main() {
+    app := fiber.New()
+
+    // Middleware
+    app.Use(recover.New())
+    app.Use(logger.New())
+    app.Use(cors.New())
+
+    // Routes
+    api := app.Group("/api")
+
+    // Get all users
+    api.Get("/users", func(c fiber.Ctx) error {
+        return c.JSON(users)
+    })
+
+    // Get user by ID
+    api.Get("/users/:id", func(c fiber.Ctx) error {
+        id, err := c.ParamsInt("id")
+        if err != nil {
+            return fiber.NewError(fiber.StatusBadRequest, "Invalid ID")
+        }
+
+        for _, user := range users {
+            if user.ID == id {
+                return c.JSON(user)
+            }
+        }
+
+        return fiber.NewError(fiber.StatusNotFound, "User not found")
+    })
+
+    // Create user
+    api.Post("/users", func(c fiber.Ctx) error {
+        user := new(User)
+
+        if err := c.Bind().JSON(user); err != nil {
+            return err
+        }
+
+        user.ID = len(users) + 1
+        users = append(users, *user)
+
+        return c.Status(fiber.StatusCreated).JSON(user)
+    })
+
+    log.Fatal(app.Listen(":3000"))
+}
+```
+
+## Testing your API
+
+Test your endpoints with curl:
+
+<CodeGroup>
+```bash Get all users
+curl http://localhost:3000/api/users
+```
+
+```bash Get user by ID
+curl http://localhost:3000/api/users/1
+```
+
+```bash Create a user
+curl -X POST http://localhost:3000/api/users \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice","age":28}'
+```
+</CodeGroup>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Routing guide" icon="route" href="/guide/routing">
+    Learn advanced routing techniques and patterns
+  </Card>
+  <Card title="Middleware" icon="layer-group" href="/api/middleware">
+    Explore all built-in and third-party middleware
+  </Card>
+  <Card title="Context API" icon="code" href="/api/ctx">
+    Master the Fiber context for request/response handling
+  </Card>
+  <Card title="Template engines" icon="file-code" href="https://github.com/gofiber/template">
+    Render HTML views with template engines
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

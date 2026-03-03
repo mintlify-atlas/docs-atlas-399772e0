@@ -1,0 +1,268 @@
+---
+title: Request ID
+description: Request ID middleware for Fiber
+---
+
+Request ID middleware for Fiber generates a unique identifier for each request. This helps with request tracking, debugging, and correlation across distributed systems.
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+func FromContext(c fiber.Ctx) string
+```
+
+## Usage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/requestid"
+)
+```
+
+### Basic Usage
+
+```go
+app.Use(requestid.New())
+
+app.Get("/", func(c fiber.Ctx) error {
+    return c.SendString("Request ID: " + requestid.FromContext(c))
+})
+```
+
+### Custom Header
+
+```go
+app.Use(requestid.New(requestid.Config{
+    Header: "X-Custom-Request-ID",
+}))
+```
+
+### Custom Generator
+
+```go
+import "github.com/google/uuid"
+
+app.Use(requestid.New(requestid.Config{
+    Generator: func() string {
+        return uuid.New().String()
+    },
+}))
+```
+
+### Skip Specific Routes
+
+```go
+app.Use(requestid.New(requestid.Config{
+    Next: func(c fiber.Ctx) bool {
+        return c.Path() == "/health"
+    },
+}))
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+Defines a function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="Header" type="string" default={`X-Request-ID`}>
+The header key where the unique request ID is stored. The middleware will check this header on incoming requests and set it on responses.
+</ParamField>
+
+<ParamField path="Generator" type="func() string" default="utils.SecureToken">
+Defines a function to generate the unique request identifier. The default uses a secure random token generator.
+</ParamField>
+
+## Default Config
+
+```go
+var ConfigDefault = Config{
+    Next:      nil,
+    Header:    fiber.HeaderXRequestID, // "X-Request-ID"
+    Generator: utils.SecureToken,
+}
+```
+
+## Helper Functions
+
+### FromContext
+
+```go
+func FromContext(c fiber.Ctx) string
+```
+
+Retrieves the request ID from the context. This is useful for accessing the request ID in handlers.
+
+```go
+app.Get("/user/:id", func(c fiber.Ctx) error {
+    requestID := requestid.FromContext(c)
+    log.Printf("[%s] Fetching user %s", requestID, c.Params("id"))
+    return c.JSON(user)
+})
+```
+
+## Common Use Cases
+
+### Logging with Request ID
+
+```go
+import (
+    "github.com/gofiber/fiber/v3/middleware/requestid"
+    "github.com/gofiber/fiber/v3/middleware/logger"
+)
+
+app.Use(requestid.New())
+
+app.Use(logger.New(logger.Config{
+    CustomTags: map[string]logger.LogFunc{
+        "requestid": func(output logger.Buffer, c fiber.Ctx, data *logger.Data, extraParam string) (int, error) {
+            return output.WriteString(requestid.FromContext(c))
+        },
+    },
+    Format: "[${requestid}] ${status} - ${method} ${path}\n",
+}))
+```
+
+### Error Tracking
+
+```go
+app.Use(requestid.New())
+
+app.Use(func(c fiber.Ctx) error {
+    err := c.Next()
+    if err != nil {
+        requestID := requestid.FromContext(c)
+        log.Printf("[%s] Error: %v", requestID, err)
+        return c.Status(500).JSON(fiber.Map{
+            "error":      "Internal Server Error",
+            "request_id": requestID,
+        })
+    }
+    return nil
+})
+```
+
+### Distributed Tracing
+
+```go
+app.Use(requestid.New(requestid.Config{
+    Header: "X-Trace-ID",
+    Generator: func() string {
+        return uuid.New().String()
+    },
+}))
+
+app.Get("/api/user/:id", func(c fiber.Ctx) error {
+    traceID := requestid.FromContext(c)
+    
+    // Pass trace ID to downstream services
+    req := fasthttp.AcquireRequest()
+    req.Header.Set("X-Trace-ID", traceID)
+    
+    // Make request...
+    return c.JSON(response)
+})
+```
+
+### Client-Provided Request ID
+
+```go
+// Accept request ID from client or generate new one
+app.Use(requestid.New(requestid.Config{
+    Header: "X-Request-ID",
+    Generator: func() string {
+        return uuid.New().String()
+    },
+}))
+
+// Client can send: X-Request-ID: client-generated-id
+// If not provided, server generates one
+```
+
+### Correlation Across Services
+
+```go
+app.Use(requestid.New())
+
+func callDownstreamService(c fiber.Ctx) error {
+    requestID := requestid.FromContext(c)
+    
+    client := &http.Client{}
+    req, _ := http.NewRequest("GET", "http://service2/api", nil)
+    req.Header.Set("X-Request-ID", requestID)
+    
+    resp, err := client.Do(req)
+    // Handle response...
+    return nil
+}
+```
+
+## Best Practices
+
+### Register Early
+
+```go
+// Register request ID middleware early so all logs include it
+app.Use(requestid.New())
+app.Use(logger.New())
+
+// Other middleware and routes...
+```
+
+### Use Consistent Header Names
+
+```go
+// Use standard headers across your microservices
+const TraceHeader = "X-Trace-ID"
+
+app.Use(requestid.New(requestid.Config{
+    Header: TraceHeader,
+}))
+```
+
+### Include in Error Responses
+
+```go
+app.Use(requestid.New())
+
+app.Use(func(c fiber.Ctx) error {
+    err := c.Next()
+    if err != nil {
+        return c.Status(500).JSON(fiber.Map{
+            "error":      err.Error(),
+            "request_id": requestid.FromContext(c),
+            "timestamp":  time.Now().Unix(),
+        })
+    }
+    return nil
+})
+```
+
+### Structured Logging
+
+```go
+import "log/slog"
+
+app.Use(requestid.New())
+
+app.Get("/api/data", func(c fiber.Ctx) error {
+    requestID := requestid.FromContext(c)
+    
+    slog.Info("Processing request",
+        "request_id", requestID,
+        "path", c.Path(),
+        "method", c.Method(),
+    )
+    
+    return c.JSON(data)
+})
+```
+
+## Notes
+
+- If the request already contains the configured header, its value is used instead of generating a new one
+- The request ID is stored in the response header for client reference
+- The default generator uses `utils.SecureToken` which provides cryptographically secure random tokens
+- Request IDs are useful for debugging, logging, and tracing requests through distributed systems

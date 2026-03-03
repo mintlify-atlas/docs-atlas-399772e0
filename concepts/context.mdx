@@ -1,0 +1,524 @@
+---
+title: Context
+description: Learn about Fiber's Ctx interface for handling requests and responses with zero-allocation patterns.
+---
+
+The `Ctx` interface (Context) provides methods for handling HTTP requests and responses. It's the most important parameter passed to route handlers and middleware.
+
+## What is Ctx?
+
+The Ctx object encapsulates the HTTP request and response, providing methods to:
+- Read request data (headers, body, parameters)
+- Send responses (JSON, HTML, files)
+- Set response headers and status codes
+- Access request metadata
+
+```go
+app.Get("/user/:id", func(c fiber.Ctx) error {
+    // c is the context
+    id := c.Params("id")
+    return c.JSON(fiber.Map{
+        "id": id,
+    })
+})
+```
+
+## Request Methods
+
+### Reading Parameters
+
+Access URL parameters defined in routes:
+
+```go
+app.Get("/user/:id", func(c fiber.Ctx) error {
+    id := c.Params("id")
+    return c.SendString("User ID: " + id)
+})
+
+// With default value
+app.Get("/user/:id?", func(c fiber.Ctx) error {
+    id := c.Params("id", "guest")
+    return c.SendString("User ID: " + id)
+})
+
+// Type-safe parameters
+import "strconv"
+
+app.Get("/user/:id<int>", func(c fiber.Ctx) error {
+    idStr := c.Params("id")
+    id, _ := strconv.Atoi(idStr)
+    return c.SendString(fmt.Sprintf("User ID: %d", id))
+})
+```
+
+### Query Strings
+
+Retrieve query parameters from the URL:
+
+```go
+// GET /search?q=fiber&limit=10
+app.Get("/search", func(c fiber.Ctx) error {
+    query := c.Query("q")
+    limit := c.Query("limit", "20") // default value
+    
+    return c.JSON(fiber.Map{
+        "query": query,
+        "limit": limit,
+    })
+})
+```
+
+### Request Headers
+
+Read request headers:
+
+```go
+app.Get("/", func(c fiber.Ctx) error {
+    userAgent := c.Get("User-Agent")
+    contentType := c.Get("Content-Type")
+    
+    // Get all headers
+    headers := c.GetReqHeaders()
+    
+    return c.JSON(fiber.Map{
+        "userAgent":   userAgent,
+        "contentType": contentType,
+        "allHeaders":  headers,
+    })
+})
+```
+
+### Request Body
+
+Parse request body in various formats:
+
+```go
+type User struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+app.Post("/user", func(c fiber.Ctx) error {
+    user := new(User)
+    
+    // Parse JSON body
+    if err := c.Bind().JSON(user); err != nil {
+        return err
+    }
+    
+    return c.JSON(user)
+})
+
+// Parse form data
+app.Post("/form", func(c fiber.Ctx) error {
+    name := c.FormValue("name")
+    email := c.FormValue("email")
+    
+    return c.JSON(fiber.Map{
+        "name":  name,
+        "email": email,
+    })
+})
+```
+
+### Cookies
+
+Read and write cookies:
+
+```go
+app.Get("/cookie", func(c fiber.Ctx) error {
+    // Read cookie
+    value := c.Cookies("session_id")
+    
+    return c.SendString("Cookie value: " + value)
+})
+
+app.Post("/login", func(c fiber.Ctx) error {
+    // Set cookie
+    c.Cookie(&fiber.Cookie{
+        Name:     "session_id",
+        Value:    "abc123",
+        MaxAge:   3600,
+        HTTPOnly: true,
+        Secure:   true,
+    })
+    
+    return c.SendString("Cookie set")
+})
+```
+
+## Response Methods
+
+### Sending Text
+
+```go
+app.Get("/", func(c fiber.Ctx) error {
+    return c.SendString("Hello, World!")
+})
+```
+
+### Sending JSON
+
+```go
+app.Get("/user", func(c fiber.Ctx) error {
+    return c.JSON(fiber.Map{
+        "name":  "John",
+        "email": "john@example.com",
+    })
+})
+
+// With struct
+type User struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
+
+app.Get("/user", func(c fiber.Ctx) error {
+    user := User{
+        Name:  "John",
+        Email: "john@example.com",
+    }
+    return c.JSON(user)
+})
+```
+
+### Setting Status Codes
+
+```go
+app.Post("/user", func(c fiber.Ctx) error {
+    // Set status and send response
+    return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+        "message": "User created",
+    })
+})
+
+// Send status only
+app.Delete("/user/:id", func(c fiber.Ctx) error {
+    // Delete user...
+    return c.SendStatus(fiber.StatusNoContent)
+})
+```
+
+### Setting Headers
+
+```go
+app.Get("/download", func(c fiber.Ctx) error {
+    // Set single header
+    c.Set("Content-Type", "application/pdf")
+    c.Set("Content-Disposition", "attachment; filename=file.pdf")
+    
+    return c.SendFile("./file.pdf")
+})
+
+// Set multiple headers
+app.Get("/api", func(c fiber.Ctx) error {
+    c.Set("X-Custom-Header", "value")
+    c.Append("Vary", "Accept-Encoding")
+    
+    return c.JSON(fiber.Map{"status": "ok"})
+})
+```
+
+### Sending Files
+
+```go
+app.Get("/download", func(c fiber.Ctx) error {
+    // Send file
+    return c.SendFile("./file.pdf")
+})
+
+app.Get("/download", func(c fiber.Ctx) error {
+    // Send file with custom name
+    return c.Download("./report.pdf", "monthly-report.pdf")
+})
+```
+
+### Redirects
+
+```go
+app.Get("/old", func(c fiber.Ctx) error {
+    return c.Redirect("/new")
+})
+
+// Redirect to external URL
+app.Get("/external", func(c fiber.Ctx) error {
+    return c.Redirect("https://example.com")
+})
+
+// Redirect with custom status
+app.Get("/moved", func(c fiber.Ctx) error {
+    return c.Redirect().Status(301).To("/new-location")
+})
+```
+
+## Context Metadata
+
+### Request Information
+
+```go
+app.Get("/info", func(c fiber.Ctx) error {
+    return c.JSON(fiber.Map{
+        "method":   c.Method(),           // GET
+        "path":     c.Path(),             // /info
+        "url":      c.OriginalURL(),      // /info?query=value
+        "protocol": c.Protocol(),         // http or https
+        "ip":       c.IP(),               // Client IP
+        "hostname": c.Hostname(),         // example.com
+    })
+})
+```
+
+### Request Context
+
+Access the standard `context.Context`:
+
+```go
+app.Get("/", func(c fiber.Ctx) error {
+    ctx := c.Context()
+    
+    // Use with database calls
+    user, err := db.GetUserContext(ctx, id)
+    if err != nil {
+        return err
+    }
+    
+    return c.JSON(user)
+})
+```
+
+### Locals Storage
+
+Store request-scoped data:
+
+```go
+app.Use(func(c fiber.Ctx) error {
+    // Set data
+    c.Locals("user", User{
+        Name: "John",
+        ID:   123,
+    })
+    return c.Next()
+})
+
+app.Get("/profile", func(c fiber.Ctx) error {
+    // Get data
+    user := c.Locals("user").(User)
+    return c.JSON(user)
+})
+```
+
+## Zero-Allocation Patterns
+
+Fiber is designed for performance with zero-allocation in mind:
+
+### Immutable vs Mutable
+
+By default, values are **mutable** (zero-allocation) and only valid within the handler:
+
+```go
+app.Get("/", func(c fiber.Ctx) error {
+    // Mutable - fast but only valid in handler
+    path := c.Path()
+    
+    // DON'T do this - value becomes invalid
+    go func() {
+        time.Sleep(time.Second)
+        fmt.Println(path) // UNSAFE - may be corrupted
+    }()
+    
+    return c.SendString("Hello")
+})
+```
+
+Enable `Immutable` mode for safe concurrent access:
+
+```go
+app := fiber.New(fiber.Config{
+    Immutable: true,
+})
+
+app.Get("/", func(c fiber.Ctx) error {
+    // Immutable - safe for concurrent use
+    path := c.Path()
+    
+    go func() {
+        time.Sleep(time.Second)
+        fmt.Println(path) // SAFE - value is copied
+    }()
+    
+    return c.SendString("Hello")
+})
+```
+
+### Making Copies
+
+Manually copy values when needed:
+
+```go
+app.Get("/", func(c fiber.Ctx) error {
+    // Make a copy for async use
+    path := c.Path()
+    pathCopy := string([]byte(path))
+    
+    go func() {
+        fmt.Println(pathCopy) // Safe
+    }()
+    
+    return c.SendString("Hello")
+})
+```
+
+## Advanced Features
+
+### Request Binding
+
+Bind request data to structs:
+
+```go
+type CreateUserRequest struct {
+    Name  string `json:"name" form:"name"`
+    Email string `json:"email" form:"email"`
+}
+
+app.Post("/user", func(c fiber.Ctx) error {
+    req := new(CreateUserRequest)
+    
+    // Bind from JSON or form data
+    if err := c.Bind().Body(req); err != nil {
+        return err
+    }
+    
+    return c.JSON(req)
+})
+```
+
+### Format Negotiation
+
+Send different responses based on Accept header:
+
+```go
+app.Get("/user", func(c fiber.Ctx) error {
+    return c.Format(fiber.Map{
+        "name":  "John",
+        "email": "john@example.com",
+    })
+})
+
+// Accepts:
+// - application/json → JSON response
+// - text/html → HTML response
+// - text/plain → Plain text response
+```
+
+### MultipartForm
+
+Handle file uploads:
+
+```go
+app.Post("/upload", func(c fiber.Ctx) error {
+    // Get file from form
+    file, err := c.FormFile("document")
+    if err != nil {
+        return err
+    }
+    
+    // Save file
+    if err := c.SaveFile(file, "./uploads/" + file.Filename); err != nil {
+        return err
+    }
+    
+    return c.SendString("File uploaded: " + file.Filename)
+})
+```
+
+## Context Lifecycle
+
+The Ctx object is pooled and reused for performance:
+
+```go
+app.Get("/", func(c fiber.Ctx) error {
+    // Context is valid here
+    
+    // DON'T store the context itself
+    // storedCtx = c  // WRONG!
+    
+    // DO copy the values you need
+    path := string(c.Path())
+    
+    return c.SendString("Hello")
+})
+// After handler returns, context is returned to pool
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Don't store Ctx references">
+    Never store the Ctx object itself - it's pooled and reused.
+    
+    ```go
+    // WRONG
+    var globalCtx fiber.Ctx
+    app.Get("/", func(c fiber.Ctx) error {
+        globalCtx = c  // Don't do this!
+        return nil
+    })
+    
+    // RIGHT
+    app.Get("/", func(c fiber.Ctx) error {
+        path := c.Path()  // Copy the value
+        return nil
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Use Locals for request-scoped data">
+    Store data that should be shared between middleware and handlers using Locals.
+    
+    ```go
+    app.Use(func(c fiber.Ctx) error {
+        c.Locals("requestID", generateID())
+        return c.Next()
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Enable Immutable for goroutines">
+    If you need to use Ctx values in goroutines, enable Immutable mode.
+    
+    ```go
+    app := fiber.New(fiber.Config{
+        Immutable: true,
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Check errors from Bind methods">
+    Always validate the error returned from binding methods.
+    
+    ```go
+    if err := c.Bind().JSON(&data); err != nil {
+        return c.Status(400).JSON(fiber.Map{
+            "error": err.Error(),
+        })
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Routing" icon="route" href="/concepts/routing">
+    Define routes and access parameters
+  </Card>
+  <Card title="Middleware" icon="filter" href="/concepts/middleware">
+    Process requests with middleware
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/concepts/error-handling">
+    Handle errors in handlers
+  </Card>
+  <Card title="Request Binding" icon="link" href="/api/bind">
+    Bind request data to structs
+  </Card>
+</CardGroup>

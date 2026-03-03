@@ -1,0 +1,352 @@
+---
+title: KeyAuth
+description: API key authentication middleware
+---
+
+KeyAuth middleware provides API key based authentication for your Fiber application. It validates keys from various sources (headers, cookies, query parameters, forms) and supports custom validation logic.
+
+## Installation
+
+```bash
+go get -u github.com/gofiber/fiber/v3
+go get -u github.com/gofiber/fiber/v3/middleware/keyauth
+```
+
+## Signatures
+
+```go
+func New(config Config) fiber.Handler
+func TokenFromContext(ctx any) string
+```
+
+## Usage
+
+### Basic Usage with Cookie
+
+```go
+package main
+
+import (
+    "crypto/sha256"
+    "crypto/subtle"
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/keyauth"
+    "github.com/gofiber/fiber/v3/extractors"
+)
+
+var apiKey = "correct horse battery staple"
+
+func validateAPIKey(c fiber.Ctx, key string) (bool, error) {
+    hashedAPIKey := sha256.Sum256([]byte(apiKey))
+    hashedKey := sha256.Sum256([]byte(key))
+
+    if subtle.ConstantTimeCompare(hashedAPIKey[:], hashedKey[:]) == 1 {
+        return true, nil
+    }
+    return false, keyauth.ErrMissingOrMalformedAPIKey
+}
+
+func main() {
+    app := fiber.New()
+
+    app.Use(keyauth.New(keyauth.Config{
+        Extractor: extractors.FromCookie("access_token"),
+        Validator: validateAPIKey,
+    }))
+
+    app.Get("/", func(c fiber.Ctx) error {
+        return c.SendString("Successfully authenticated!")
+    })
+
+    app.Listen(":3000")
+}
+```
+
+### Authorization Header (Bearer Token)
+
+```go
+app.Use(keyauth.New(keyauth.Config{
+    // Default extractor uses Authorization: Bearer <token>
+    Validator: validateAPIKey,
+}))
+```
+
+### Custom Header
+
+```go
+app.Use(keyauth.New(keyauth.Config{
+    Extractor: extractors.FromHeader("X-API-Key"),
+    Validator: validateAPIKey,
+}))
+```
+
+### Multiple Sources (Chained Extractors)
+
+```go
+app.Use(keyauth.New(keyauth.Config{
+    Extractor: extractors.Chain(
+        extractors.FromHeader("X-API-Key"),
+        extractors.FromQuery("api_key"),
+        extractors.FromCookie("api_token"),
+    ),
+    Validator: validateAPIKey,
+}))
+```
+
+### Protect Specific Routes
+
+```go
+app.Use(keyauth.New(keyauth.Config{
+    Next: func(c fiber.Ctx) bool {
+        // Skip authentication for public routes
+        return c.Path() == "/" || c.Path() == "/public"
+    },
+    Extractor: extractors.FromHeader("X-API-Key"),
+    Validator: validateAPIKey,
+}))
+```
+
+### Apply to Specific Handlers
+
+```go
+authMiddleware := keyauth.New(keyauth.Config{
+    Validator: validateAPIKey,
+})
+
+app.Get("/public", func(c fiber.Ctx) error {
+    return c.SendString("Public route")
+})
+
+app.Get("/protected", authMiddleware, func(c fiber.Ctx) error {
+    return c.SendString("Protected route")
+})
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+  Function to skip this middleware when it returns true.
+</ParamField>
+
+<ParamField path="SuccessHandler" type="fiber.Handler" default="c.Next()">
+  Handler executed when the API key is valid.
+</ParamField>
+
+<ParamField path="ErrorHandler" type="fiber.ErrorHandler" default="401 response">
+  Handler executed when the API key is invalid. Returns 401 with WWW-Authenticate header by default.
+</ParamField>
+
+<ParamField path="Validator" type="func(fiber.Ctx, string) (bool, error)" required>
+  **Required.** Function to validate the API key. Must return `true, nil` for valid keys.
+</ParamField>
+
+<ParamField path="Extractor" type="extractors.Extractor" default='extractors.FromAuthHeader("Bearer")'>
+  Defines how to extract the key from the request. See [Extractors Guide](../guide/extractors).
+</ParamField>
+
+<ParamField path="Realm" type="string" >
+  Protected area name used in the WWW-Authenticate header.
+</ParamField>
+
+<ParamField path="Challenge" type="string" default="(see description)">
+  WWW-Authenticate header value when no Authorization scheme is present.
+</ParamField>
+
+<ParamField path="Error" type="string" default="'">
+  RFC 6750 error code for Bearer challenges: `invalid_request`, `invalid_token`, or `insufficient_scope`.
+</ParamField>
+
+<ParamField path="ErrorDescription" type="string" default="'">
+  Human-readable error description for Bearer challenges. Requires `Error` to be set.
+</ParamField>
+
+<ParamField path="ErrorURI" type="string" default="'">
+  URI with error information for Bearer challenges. Must be absolute and requires `Error`.
+</ParamField>
+
+<ParamField path="Scope" type="string" default="'">
+  Space-delimited scopes for Bearer challenges. Requires `Error` set to `insufficient_scope`.
+</ParamField>
+
+## Default Configuration
+
+```go
+var ConfigDefault = Config{
+    SuccessHandler: func(c fiber.Ctx) error {
+        return c.Next()
+    },
+    ErrorHandler: func(c fiber.Ctx, _ error) error {
+        return c.Status(fiber.StatusUnauthorized).SendString(ErrMissingOrMalformedAPIKey.Error())
+    },
+    Realm:     "Restricted",
+    Extractor: extractors.FromAuthHeader("Bearer"),
+}
+```
+
+## Best Practices
+
+### Use Constant-Time Comparison
+
+```go
+import "crypto/subtle"
+
+func validateAPIKey(c fiber.Ctx, key string) (bool, error) {
+    // Hash both keys
+    hashedAPIKey := sha256.Sum256([]byte(expectedKey))
+    hashedKey := sha256.Sum256([]byte(key))
+
+    // Use constant-time comparison to prevent timing attacks
+    if subtle.ConstantTimeCompare(hashedAPIKey[:], hashedKey[:]) == 1 {
+        return true, nil
+    }
+    return false, keyauth.ErrMissingOrMalformedAPIKey
+}
+```
+
+### Database-Backed Validation
+
+```go
+func validateAPIKey(c fiber.Ctx, key string) (bool, error) {
+    // Look up key in database
+    user, err := db.GetUserByAPIKey(key)
+    if err != nil {
+        return false, keyauth.ErrMissingOrMalformedAPIKey
+    }
+
+    // Store user in context for later use
+    c.Locals("user", user)
+    return true, nil
+}
+```
+
+### Custom Error Responses
+
+```go
+app.Use(keyauth.New(keyauth.Config{
+    Validator: validateAPIKey,
+    ErrorHandler: func(c fiber.Ctx, err error) error {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+            "error": "Invalid API key",
+            "code":  "INVALID_API_KEY",
+        })
+    },
+}))
+```
+
+## Common Patterns
+
+### Route-Based Protection
+
+```go
+import "regexp"
+
+var protectedURLs = []*regexp.Regexp{
+    regexp.MustCompile("^/api/"),
+    regexp.MustCompile("^/admin/"),
+}
+
+func shouldAuthenticate(c fiber.Ctx) bool {
+    path := c.Path()
+    for _, pattern := range protectedURLs {
+        if pattern.MatchString(path) {
+            return false // Don't skip, authenticate
+        }
+    }
+    return true // Skip authentication
+}
+
+app.Use(keyauth.New(keyauth.Config{
+    Next:      shouldAuthenticate,
+    Validator: validateAPIKey,
+}))
+```
+
+### Multiple API Keys
+
+```go
+var validKeys = map[string]bool{
+    "key1-hash": true,
+    "key2-hash": true,
+    "key3-hash": true,
+}
+
+func validateAPIKey(c fiber.Ctx, key string) (bool, error) {
+    hashedKey := sha256.Sum256([]byte(key))
+    keyStr := hex.EncodeToString(hashedKey[:])
+
+    if validKeys[keyStr] {
+        return true, nil
+    }
+    return false, keyauth.ErrMissingOrMalformedAPIKey
+}
+```
+
+### Rate Limiting by API Key
+
+```go
+func validateAPIKey(c fiber.Ctx, key string) (bool, error) {
+    user, err := db.GetUserByAPIKey(key)
+    if err != nil {
+        return false, keyauth.ErrMissingOrMalformedAPIKey
+    }
+
+    // Store user for rate limiter
+    c.Locals("user_id", user.ID)
+    return true, nil
+}
+
+// Use user_id in rate limiter key generator
+app.Use(limiter.New(limiter.Config{
+    KeyGenerator: func(c fiber.Ctx) string {
+        if userID, ok := c.Locals("user_id").(int); ok {
+            return fmt.Sprintf("user:%d", userID)
+        }
+        return c.IP()
+    },
+}))
+```
+
+### Retrieve Token in Handler
+
+```go
+app.Get("/profile", func(c fiber.Ctx) error {
+    token := keyauth.TokenFromContext(c)
+    user := getUserFromToken(token)
+    return c.JSON(user)
+})
+```
+
+## Testing
+
+```bash
+# Missing API key
+curl http://localhost:3000/protected
+# 401 Unauthorized
+
+# Valid API key in header
+curl -H "Authorization: Bearer correct-horse-battery-staple" http://localhost:3000/protected
+# Successfully authenticated!
+
+# Valid API key in custom header
+curl -H "X-API-Key: my-secret-key" http://localhost:3000/protected
+
+# Valid API key in query
+curl http://localhost:3000/protected?api_key=my-secret-key
+
+# Valid API key in cookie
+curl --cookie "access_token=my-secret-key" http://localhost:3000/protected
+```
+
+## Extractors
+
+KeyAuth uses the shared [extractors package](../guide/extractors). Common extractors:
+
+- `extractors.FromAuthHeader("Bearer")` - Authorization header
+- `extractors.FromHeader("X-API-Key")` - Custom header
+- `extractors.FromQuery("api_key")` - Query parameter
+- `extractors.FromCookie("token")` - Cookie
+- `extractors.FromForm("api_key")` - Form field
+- `extractors.Chain(...)` - Try multiple sources
+- `extractors.FromCustom(func)` - Custom logic
+
+See the [Extractors Guide](../guide/extractors) for details.

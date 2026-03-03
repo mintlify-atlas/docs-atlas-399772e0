@@ -1,0 +1,318 @@
+---
+title: Routing
+description: Learn how Fiber's routing system handles URL patterns, parameters, wildcards, and named routes.
+---
+
+Fiber's routing system provides a powerful and flexible way to define how your application responds to client requests. Routes are matched based on HTTP methods and URL patterns.
+
+## Basic Routes
+
+Routes are registered using HTTP method functions on the App instance:
+
+```go
+app.Get("/", func(c fiber.Ctx) error {
+    return c.SendString("GET request")
+})
+
+app.Post("/submit", func(c fiber.Ctx) error {
+    return c.SendString("POST request")
+})
+
+app.Put("/user/:id", func(c fiber.Ctx) error {
+    return c.SendString("PUT request")
+})
+```
+
+## Route Parameters
+
+Route parameters are dynamic path segments that capture values from the URL. They are defined using the `:` prefix:
+
+```go
+app.Get("/user/:id", func(c fiber.Ctx) error {
+    id := c.Params("id")
+    return c.SendString("User ID: " + id)
+})
+
+// Multiple parameters
+app.Get("/posts/:category/:id", func(c fiber.Ctx) error {
+    category := c.Params("category")
+    id := c.Params("id")
+    return c.JSON(fiber.Map{
+        "category": category,
+        "id":       id,
+    })
+})
+```
+
+### Optional Parameters
+
+Make parameters optional by adding a `?` suffix:
+
+```go
+app.Get("/user/:id?", func(c fiber.Ctx) error {
+    id := c.Params("id", "default-id")
+    return c.SendString("User ID: " + id)
+})
+```
+
+## Wildcard Routes
+
+Wildcard parameters match one or more path segments:
+
+### Asterisk Wildcard (`*`)
+
+The `*` wildcard is optional and matches zero or more segments:
+
+```go
+app.Get("/api/*", func(c fiber.Ctx) error {
+    path := c.Params("*")
+    return c.SendString("Wildcard: " + path)
+})
+```
+
+<CodeGroup>
+```go /api/users/123
+// Matches: path = "users/123"
+```
+
+```go /api/
+// Matches: path = ""
+```
+
+```go /api
+// Matches: path = ""
+```
+</CodeGroup>
+
+### Plus Wildcard (`+`)
+
+The `+` wildcard is required and matches one or more segments:
+
+```go
+app.Get("/files/+", func(c fiber.Ctx) error {
+    filepath := c.Params("+")
+    return c.SendString("File path: " + filepath)
+})
+```
+
+<CodeGroup>
+```go /files/documents/report.pdf
+// Matches: filepath = "documents/report.pdf"
+```
+
+```go /files/
+// Does NOT match (requires at least one segment)
+```
+</CodeGroup>
+
+## Parameter Constraints
+
+Constrain parameter values using type validation:
+
+```go
+// Integer constraint
+app.Get("/user/:id<int>", func(c fiber.Ctx) error {
+    id := c.Params("id")
+    return c.SendString("User ID: " + id)
+})
+
+// GUID constraint
+app.Get("/order/:uuid<guid>", func(c fiber.Ctx) error {
+    uuid := c.Params("uuid")
+    return c.SendString("Order UUID: " + uuid)
+})
+
+// Min/Max length constraints
+app.Get("/code/:value<minLen(5);maxLen(10)>", func(c fiber.Ctx) error {
+    code := c.Params("value")
+    return c.SendString("Code: " + code)
+})
+
+// Regex constraint
+app.Get("/user/:name<regex(^[a-z]+$)>", func(c fiber.Ctx) error {
+    name := c.Params("name")
+    return c.SendString("Username: " + name)
+})
+```
+
+### Available Constraints
+
+| Constraint | Description | Example |
+| --- | --- | --- |
+| `int` | Integer values | `:id<int>` |
+| `bool` | Boolean values | `:active<bool>` |
+| `float` | Float values | `:price<float>` |
+| `alpha` | Alphabetic characters | `:name<alpha>` |
+| `guid` | GUID/UUID format | `:uuid<guid>` |
+| `minLen(n)` | Minimum length | `:code<minLen(5)>` |
+| `maxLen(n)` | Maximum length | `:code<maxLen(10)>` |
+| `len(n)` | Exact length | `:code<len(8)>` |
+| `min(n)` | Minimum value | `:age<min(18)>` |
+| `max(n)` | Maximum value | `:age<max(100)>` |
+| `range(min,max)` | Value range | `:port<range(1024,65535)>` |
+| `regex(pattern)` | Custom regex | `:slug<regex(^[a-z0-9-]+$)>` |
+| `datetime(format)` | Date/time format | `:date<datetime(2006-01-02)>` |
+
+## Multiple HTTP Methods
+
+Register a route for multiple HTTP methods:
+
+```go
+app.Add(["GET", "POST"], "/api/data", func(c fiber.Ctx) error {
+    return c.SendString("Handles GET and POST")
+})
+
+// All HTTP methods
+app.All("/api/catch-all", func(c fiber.Ctx) error {
+    return c.SendString("Handles all methods")
+})
+```
+
+## Named Routes
+
+Assign names to routes for easy reference:
+
+```go
+app.Get("/user/:id", handler).Name("user.show")
+
+// Retrieve route by name
+route := app.GetRoute("user.show")
+fmt.Println(route.Path) // Output: /user/:id
+
+// Use in redirects
+app.Get("/profile", func(c fiber.Ctx) error {
+    return c.Redirect().Route("user.show", fiber.Map{
+        "id": "123",
+    })
+})
+```
+
+## Route Configuration
+
+Control routing behavior with application config:
+
+```go
+app := fiber.New(fiber.Config{
+    // Case-sensitive routing: /Foo != /foo
+    CaseSensitive: true,
+    
+    // Strict routing: /foo != /foo/
+    StrictRouting: true,
+    
+    // Unescape path values
+    UnescapePath: true,
+})
+```
+
+### Case Sensitivity
+
+By default, routes are case-insensitive:
+
+```go
+// Default: CaseSensitive = false
+app.Get("/Users", handler)
+// Matches: /users, /Users, /USERS
+
+// With CaseSensitive = true
+app.Get("/Users", handler)
+// Matches: /Users only
+```
+
+### Strict Routing
+
+By default, trailing slashes are optional:
+
+```go
+// Default: StrictRouting = false
+app.Get("/users", handler)
+// Matches: /users and /users/
+
+// With StrictRouting = true
+app.Get("/users", handler)
+// Matches: /users only (not /users/)
+```
+
+## Route Matching Order
+
+Routes are matched in the order they are defined. More specific routes should be defined before generic ones:
+
+```go
+// Correct order
+app.Get("/users/new", newUserHandler)       // Specific
+app.Get("/users/:id", showUserHandler)      // Less specific
+app.Get("/users/*", catchAllHandler)        // Generic
+
+// If reversed, /users/new would match :id parameter
+```
+
+## Route Pattern Matching
+
+Test if a path matches a route pattern without registering the route:
+
+```go
+matched := fiber.RoutePatternMatch("/users/123", "/users/:id")
+fmt.Println(matched) // Output: true
+
+// With configuration
+config := fiber.Config{CaseSensitive: true}
+matched = fiber.RoutePatternMatch("/Users", "/users", config)
+fmt.Println(matched) // Output: false
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Order routes from specific to generic">
+    Define specific routes before wildcard or parameter routes to ensure correct matching.
+    
+    ```go
+    app.Get("/api/users/admin", adminHandler)
+    app.Get("/api/users/:id", userHandler)
+    app.Get("/api/*", catchAllHandler)
+    ```
+  </Accordion>
+
+  <Accordion title="Use parameter constraints">
+    Add constraints to validate parameters early and improve route matching performance.
+    
+    ```go
+    app.Get("/user/:id<int>", userHandler)
+    app.Get("/order/:uuid<guid>", orderHandler)
+    ```
+  </Accordion>
+
+  <Accordion title="Name important routes">
+    Use named routes for routes that are frequently referenced in redirects or links.
+    
+    ```go
+    app.Get("/user/:id", userHandler).Name("user.profile")
+    ```
+  </Accordion>
+
+  <Accordion title="Group related routes">
+    Use route grouping to organize routes with common prefixes and middleware.
+    
+    ```go
+    api := app.Group("/api")
+    api.Get("/users", getUsers)
+    api.Post("/users", createUser)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Grouping" icon="layer-group" href="/concepts/grouping">
+    Organize routes with common prefixes
+  </Card>
+  <Card title="Middleware" icon="filter" href="/concepts/middleware">
+    Add logic before/after route handlers
+  </Card>
+  <Card title="Context" icon="code" href="/concepts/context">
+    Access request parameters and data
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/concepts/error-handling">
+    Handle routing errors gracefully
+  </Card>
+</CardGroup>

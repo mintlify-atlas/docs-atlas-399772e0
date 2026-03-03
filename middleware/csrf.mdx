@@ -1,0 +1,310 @@
+---
+title: CSRF
+description: Cross-Site Request Forgery protection for Fiber
+---
+
+The CSRF middleware protects against [Cross-Site Request Forgery](https://en.wikipedia.org/wiki/Cross-site_request_forgery) attacks by validating tokens on unsafe HTTP methods such as POST, PUT, and DELETE. It responds with 403 Forbidden when validation fails.
+
+<Tip>
+**Production Requirements:**
+- `CookieSecure: true` (HTTPS only)
+- `CookieSameSite: "Lax"` or `"Strict"`
+- Use `Session` store for better security
+</Tip>
+
+## Signatures
+
+```go
+func New(config ...Config) fiber.Handler
+func TokenFromContext(ctx any) string
+func HandlerFromContext(ctx any) *Handler
+```
+
+`TokenFromContext` and `HandlerFromContext` accept a `fiber.CustomCtx`, `fiber.Ctx`, a `*fasthttp.RequestCtx`, or a `context.Context`.
+
+## Usage
+
+```go
+import (
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/extractors"
+    "github.com/gofiber/fiber/v3/middleware/csrf"
+)
+```
+
+### Development Configuration
+
+```go
+// Default config (development only)
+app.Use(csrf.New())
+```
+
+### Production Configuration
+
+```go
+app.Use(csrf.New(csrf.Config{
+    CookieName:        "__Host-csrf_",
+    CookieSecure:      true,
+    CookieHTTPOnly:    true,  // false for SPAs
+    CookieSameSite:    "Lax",
+    CookieSessionOnly: true,
+    Extractor:         extractors.FromHeader("X-Csrf-Token"),
+    Session:           sessionStore,
+}))
+```
+
+### Server-Side Rendered Apps
+
+```go
+app.Use(csrf.New(csrf.Config{
+    CookieName:        "__Host-csrf_",
+    CookieSecure:      true,
+    CookieHTTPOnly:    true,        // Secure - blocks JavaScript
+    CookieSameSite:    "Lax",
+    CookieSessionOnly: true,
+    Extractor:         extractors.FromForm("_csrf"),
+    Session:           sessionStore,
+}))
+```
+
+### Single Page Applications (SPAs)
+
+```go
+app.Use(csrf.New(csrf.Config{
+    CookieName:        "__Host-csrf_",
+    CookieSecure:      true,
+    CookieHTTPOnly:    false,       // Required for JavaScript access
+    CookieSameSite:    "Lax",
+    CookieSessionOnly: true,
+    Extractor:         extractors.FromHeader("X-Csrf-Token"),
+    Session:           sessionStore,
+}))
+```
+
+## Using CSRF Tokens
+
+### Server-Side Forms
+
+```go
+func formHandler(c fiber.Ctx) error {
+    token := csrf.TokenFromContext(c)
+
+    return c.SendString(fmt.Sprintf(`
+        <form method="POST" action="/submit">
+            <input type="hidden" name="_csrf" value="%s">
+            <input type="text" name="message" required>
+            <button type="submit">Submit</button>
+        </form>
+    `, token))
+}
+```
+
+### Single Page Applications
+
+```go
+func apiHandler(c fiber.Ctx) error {
+    token := csrf.TokenFromContext(c)
+
+    return c.JSON(fiber.Map{
+        "csrf_token": token,
+        "data":       "your data",
+    })
+}
+```
+
+```javascript
+// Get CSRF token from cookie
+function getCsrfToken() {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; __Host-csrf_=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+}
+
+// Use with fetch API
+async function makeRequest(url, data) {
+    const csrfToken = getCsrfToken();
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Csrf-Token': csrfToken
+        },
+        body: JSON.stringify(data)
+    });
+
+    return response.json();
+}
+```
+
+## Configuration
+
+<ParamField path="Next" type="func(fiber.Ctx) bool" default="nil">
+Skip middleware when returns true.
+</ParamField>
+
+<ParamField path="CookieName" type="string" default={`csrf_`}>
+CSRF cookie name.
+</ParamField>
+
+<ParamField path="CookieDomain" type="string" default={``}>
+CSRF cookie domain.
+</ParamField>
+
+<ParamField path="CookiePath" type="string" default={``}>
+CSRF cookie path.
+</ParamField>
+
+<ParamField path="CookieSecure" type="bool" default="false">
+HTTPS only cookie (**required for production**).
+</ParamField>
+
+<ParamField path="CookieHTTPOnly" type="bool" default="false">
+Prevent JavaScript access (**use `false` for SPAs**).
+</ParamField>
+
+<ParamField path="CookieSameSite" type="string" default={`Lax`}>
+SameSite attribute (**use "Lax" or "Strict"**).
+</ParamField>
+
+<ParamField path="CookieSessionOnly" type="bool" default="false">
+Session-only cookie (expires on browser close).
+</ParamField>
+
+<ParamField path="IdleTimeout" type="time.Duration" default="30 * time.Minute">
+Token expiration time.
+</ParamField>
+
+<ParamField path="KeyGenerator" type="func() string" default="utils.SecureToken">
+Token generation function.
+</ParamField>
+
+<ParamField path="ErrorHandler" type="fiber.ErrorHandler" default="defaultErrorHandler">
+Custom error handler.
+</ParamField>
+
+<ParamField path="Extractor" type="extractors.Extractor" default='extractors.FromHeader("X-Csrf-Token")'>
+Token extraction method with metadata.
+</ParamField>
+
+<ParamField path="DisableValueRedaction" type="bool" default="false">
+Disables redaction of tokens and storage keys in logs and error messages.
+</ParamField>
+
+<ParamField path="Session" type="*session.Store" default="nil">
+Session store (**recommended for production**).
+</ParamField>
+
+<ParamField path="Storage" type="fiber.Storage" default="nil">
+Token storage (overridden by Session).
+</ParamField>
+
+<ParamField path="TrustedOrigins" type="[]string" default="[]">
+Trusted origins for cross-origin requests.
+</ParamField>
+
+<ParamField path="SingleUseToken" type="bool" default="false">
+Generate new token after each use.
+</ParamField>
+
+## Security Model
+
+The middleware employs a defense-in-depth strategy:
+
+### Token Validation Patterns
+
+**Double Submit Cookie (Default Mode)**: Used when a `Session` store is not configured. The server stores tokens but doesn't tie them to specific users.
+
+**Synchronizer Token (Session-Based Mode)**: Automatically enabled when you provide a `Session` store. Tokens are tied to user sessions for stronger protection.
+
+```go
+// Enable Synchronizer Token pattern
+app.Use(csrf.New(csrf.Config{
+    Session: sessionStore, // Activates session-based mode
+}))
+```
+
+### Origin & Referer Validation
+
+The middleware always performs `Origin` and `Referer` header checks for unsafe requests (when the connection is HTTPS). The request's origin must match the application's `Host` header or be explicitly allowed in the `TrustedOrigins` list.
+
+## Advanced Configuration
+
+### Trusted Origins
+
+```go
+app.Use(csrf.New(csrf.Config{
+    TrustedOrigins: []string{
+        "https://trusted.example.com",
+        "https://*.example.com", // Wildcard subdomains
+    },
+}))
+```
+
+### Custom Error Handler
+
+```go
+app.Use(csrf.New(csrf.Config{
+    ErrorHandler: func(c fiber.Ctx, err error) error {
+        accepts := c.Accepts("html", "json")
+        if accepts == "json" {
+            return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+                "error": "Forbidden",
+            })
+        }
+        return c.Status(fiber.StatusForbidden).Render("error", fiber.Map{
+            "Title": "Forbidden",
+        })
+    },
+}))
+```
+
+### Token Management
+
+```go
+// Delete token (e.g., on logout)
+handler := csrf.HandlerFromContext(c)
+if handler != nil {
+    if err := handler.DeleteToken(c); err != nil {
+        // handle error
+    }
+}
+```
+
+## Common Use Cases
+
+### Form-Based Applications
+
+```go
+app.Use(csrf.New(csrf.Config{
+    Extractor: extractors.FromForm("_csrf"),
+}))
+```
+
+### API with Multiple Client Types
+
+```go
+// Support both AJAX and form submissions
+app.Use(csrf.New(csrf.Config{
+    Extractor: extractors.Chain(
+        extractors.FromHeader("X-Csrf-Token"),
+        extractors.FromForm("_csrf"),
+    ),
+}))
+```
+
+### Route-Specific Configuration
+
+```go
+// API routes - header extraction
+api := app.Group("/api")
+api.Use(csrf.New(csrf.Config{
+    Extractor: extractors.FromHeader("X-Csrf-Token"),
+}))
+
+// Form routes - form field extraction
+forms := app.Group("/forms")
+forms.Use(csrf.New(csrf.Config{
+    Extractor: extractors.FromForm("_csrf"),
+}))
+```

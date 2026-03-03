@@ -1,0 +1,256 @@
+---
+title: Installation
+description: Learn how to install Fiber and set up your first web application with Go.
+---
+
+# Installation
+
+Get started with Fiber by installing the framework and setting up your development environment.
+
+## Prerequisites
+
+<Note>
+  Fiber requires **Go version 1.25 or higher** to run.
+</Note>
+
+If you need to install or upgrade Go, visit the [official Go download page](https://go.dev/dl/).
+
+Verify your Go installation:
+
+```bash
+go version
+```
+
+You should see output similar to:
+
+```bash
+go version go1.25.0 darwin/amd64
+```
+
+## Installation steps
+
+<Steps>
+  <Step title="Create a new project directory">
+    Create a new directory for your Fiber project and navigate into it:
+
+    ```bash
+    mkdir myapp
+    cd myapp
+    ```
+  </Step>
+
+  <Step title="Initialize Go modules">
+    Initialize your project with Go modules by running:
+
+    ```bash
+    go mod init github.com/your/repo
+    ```
+
+    Replace `github.com/your/repo` with your actual module path. This creates a `go.mod` file that tracks your project's dependencies.
+
+    <Note>
+      To learn more about Go modules and how they work, check out the [Using Go Modules](https://go.dev/blog/using-go-modules) blog post.
+    </Note>
+  </Step>
+
+  <Step title="Install Fiber">
+    Install Fiber using the `go get` command:
+
+    ```bash
+    go get -u github.com/gofiber/fiber/v3
+    ```
+
+    This command fetches the Fiber package and adds it to your project's dependencies in `go.mod`.
+  </Step>
+
+  <Step title="Create your first application">
+    Create a new file called `main.go`:
+
+    ```go main.go
+    package main
+
+    import (
+        "log"
+
+        "github.com/gofiber/fiber/v3"
+    )
+
+    func main() {
+        app := fiber.New()
+
+        app.Get("/", func(c fiber.Ctx) error {
+            return c.SendString("Hello, World 👋!")
+        })
+
+        log.Fatal(app.Listen(":3000"))
+    }
+    ```
+  </Step>
+
+  <Step title="Run your application">
+    Start your Fiber application:
+
+    ```bash
+    go run main.go
+    ```
+
+    Visit `http://localhost:3000` in your browser, and you should see "Hello, World 👋!".
+  </Step>
+</Steps>
+
+## Project structure
+
+After installation, your project structure should look like this:
+
+```
+myapp/
+├── go.mod
+├── go.sum
+└── main.go
+```
+
+- **go.mod**: Defines your module path and lists dependencies
+- **go.sum**: Contains checksums for dependency verification
+- **main.go**: Your application entry point
+
+## Installing additional packages
+
+Fiber has a rich ecosystem of middleware and utilities. Here are some commonly used packages:
+
+<CodeGroup>
+```bash Middleware
+# Logger middleware
+go get -u github.com/gofiber/fiber/v3/middleware/logger
+
+# CORS middleware
+go get -u github.com/gofiber/fiber/v3/middleware/cors
+
+# Compression middleware
+go get -u github.com/gofiber/fiber/v3/middleware/compress
+```
+
+```bash Template engines
+# Pug template engine
+go get -u github.com/gofiber/template/pug
+
+# Handlebars template engine
+go get -u github.com/gofiber/template/handlebars
+
+# HTML template engine
+go get -u github.com/gofiber/template/html
+```
+
+```bash Additional features
+# WebSocket support
+go get -u github.com/gofiber/fiber/v3/middleware/websocket
+
+# Session middleware
+go get -u github.com/gofiber/fiber/v3/middleware/session
+
+# JWT authentication
+go get -u github.com/gofiber/contrib/jwt
+```
+</CodeGroup>
+
+## Version compatibility
+
+<Warning>
+  Due to Fiber's usage of unsafe, the library may not always be compatible with the latest Go version. Fiber v3 has been tested with Go version **1.25 or higher**.
+</Warning>
+
+Check the installed Fiber version in your code:
+
+```go
+package main
+
+import (
+    "fmt"
+    "github.com/gofiber/fiber/v3"
+)
+
+func main() {
+    fmt.Println("Fiber version:", fiber.Version)
+    // Output: Fiber version: 3.1.0
+}
+```
+
+## Development tools
+
+For a better development experience, consider installing these tools:
+
+### Air (Live reload)
+
+Air provides live reloading for Go applications:
+
+```bash
+go install github.com/air-verse/air@latest
+```
+
+Create a `.air.toml` configuration file and run:
+
+```bash
+air
+```
+
+### golangci-lint (Code linting)
+
+Install the comprehensive Go linter:
+
+```bash
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+```
+
+Run the linter:
+
+```bash
+golangci-lint run
+```
+
+## Troubleshooting
+
+### Module not found
+
+If you encounter "module not found" errors, ensure you've run:
+
+```bash
+go mod tidy
+```
+
+This command adds missing dependencies and removes unused ones.
+
+### Import errors
+
+Make sure you're importing the correct Fiber version:
+
+```go
+// Correct (v3)
+import "github.com/gofiber/fiber/v3"
+
+// Incorrect (v2)
+import "github.com/gofiber/fiber/v2"
+```
+
+### Port already in use
+
+If port 3000 is already in use, specify a different port:
+
+```go
+log.Fatal(app.Listen(":8080"))
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quick start guide" icon="rocket" href="/quickstart">
+    Build your first complete Fiber application
+  </Card>
+  <Card title="Routing" icon="route" href="/guide/routing">
+    Learn about Fiber's powerful routing system
+  </Card>
+  <Card title="Middleware" icon="layer-group" href="/api/middleware">
+    Explore built-in and custom middleware
+  </Card>
+  <Card title="API reference" icon="book" href="/api/fiber">
+    Dive into the complete API documentation
+  </Card>
+</CardGroup>

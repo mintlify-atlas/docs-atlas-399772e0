@@ -1,0 +1,360 @@
+---
+title: "FAQ"
+description: "Frequently asked questions about the Fiber web framework"
+---
+
+Common questions about using Fiber, its design decisions, and best practices. If you have a question not covered here, feel free to [open an issue](https://github.com/gofiber/fiber/issues) or ask in our [Discord community](https://gofiber.io/discord).
+
+## Getting Started
+
+<AccordionGroup>
+  <Accordion title="How should I structure my application?" icon="folder-tree">
+    There's no single answer; the ideal structure depends on your application's scale and team. Fiber makes no assumptions about project layout.
+
+    Routes and other application logic can live in any files or directories. For inspiration, see:
+
+    - [gofiber/boilerplate](https://github.com/gofiber/boilerplate)
+    - [thomasvvugt/fiber-boilerplate](https://github.com/thomasvvugt/fiber-boilerplate)
+    - [Youtube - Building a REST API using Gorm and Fiber](https://www.youtube.com/watch?v=Iq2qT0fRhAA)
+    - [embedmode/fiberseed](https://github.com/embedmode/fiberseed)
+  </Accordion>
+
+  <Accordion title="How can I use live reload?" icon="arrows-rotate">
+    [Air](https://github.com/air-verse/air) automatically restarts your Go application when source files change, speeding development.
+
+    To use Air in a Fiber project:
+
+    1. Install Air by downloading the appropriate binary for your operating system from the GitHub release page or by building the tool from source.
+
+    2. Create a configuration file for Air in your project directory, such as `.air.toml` or `air.conf`:
+
+    ```toml
+    # .air.toml
+    root = "."
+    tmp_dir = "tmp"
+    [build]
+      cmd = "go build -o ./tmp/main ."
+      bin = "./tmp/main"
+      delay = 1000 # ms
+      exclude_dir = ["assets", "tmp", "vendor"]
+      include_ext = ["go", "tpl", "tmpl", "html"]
+      exclude_regex = ["_test\\.go"]
+    ```
+
+    3. Start your Fiber application with Air:
+
+    ```bash
+    air
+    ```
+
+    As you edit source files, Air detects the changes and restarts the application.
+
+    A complete example is available in the [Fiber Recipes repository](https://github.com/gofiber/recipes/tree/master/air).
+  </Accordion>
+</AccordionGroup>
+
+## Error Handling
+
+<AccordionGroup>
+  <Accordion title="How do I set up an error handler?" icon="triangle-exclamation">
+    To override the default error handler, provide a custom one in the [Config](../api/fiber.md#errorhandler) when creating a new [Fiber instance](../api/fiber.md#new).
+
+    ```go
+    app := fiber.New(fiber.Config{
+        ErrorHandler: func(c fiber.Ctx, err error) error {
+            return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+        },
+    })
+    ```
+
+    We have a dedicated page explaining how error handling works in Fiber, see [Error Handling](../guide/error-handling.md).
+  </Accordion>
+
+  <Accordion title="How do I handle custom 404 responses?" icon="magnifying-glass-slash">
+    If you're using v2.32.0 or later, implement a custom error handler as shown above or read more at [Error Handling](../guide/error-handling.md#custom-error-handler).
+
+    If you're using v2.31.0 or earlier, the error handler will not capture 404 errors. Instead, add a middleware function at the very bottom of the stack (below all other functions) to handle a 404 response:
+
+    ```go
+    app.Use(func(c fiber.Ctx) error {
+        return c.Status(fiber.StatusNotFound).SendString("Sorry can't find that!")
+    })
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Templates and Rendering
+
+<AccordionGroup>
+  <Accordion title="Which template engines does Fiber support?" icon="file-code">
+    Fiber currently supports 9 template engines in our [gofiber/template](https://docs.gofiber.io/template/) middleware:
+
+    - [ace](https://docs.gofiber.io/template/ace/)
+    - [amber](https://docs.gofiber.io/template/amber/)
+    - [django](https://docs.gofiber.io/template/django/)
+    - [handlebars](https://docs.gofiber.io/template/handlebars/)
+    - [html](https://docs.gofiber.io/template/html/)
+    - [jet](https://docs.gofiber.io/template/jet/)
+    - [mustache](https://docs.gofiber.io/template/mustache/)
+    - [pug](https://docs.gofiber.io/template/pug/)
+    - [slim](https://docs.gofiber.io/template/slim/)
+
+    To learn more about using Templates in Fiber, see [Templates](../guide/templates.md).
+  </Accordion>
+</AccordionGroup>
+
+## Routing and Networking
+
+<AccordionGroup>
+  <Accordion title="Does Fiber support subdomain routing?" icon="sitemap">
+    Yes, Fiber supports subdomain routing. Here's an example:
+
+    ```go
+    package main
+
+    import (
+        "log"
+
+        "github.com/gofiber/fiber/v3"
+        "github.com/gofiber/fiber/v3/middleware/logger"
+    )
+
+    type Host struct {
+        Fiber *fiber.App
+    }
+
+    func main() {
+        hosts := map[string]*Host{}
+        
+        //-----
+        // API
+        //-----
+        api := fiber.New()
+        api.Use(logger.New(logger.Config{
+            Format: "[${ip}]:${port} ${status} - ${method} ${path}\n",
+        }))
+        hosts["api.localhost:3000"] = &Host{api}
+        api.Get("/", func(c fiber.Ctx) error {
+            return c.SendString("API")
+        })
+        
+        //------
+        // Blog
+        //------
+        blog := fiber.New()
+        blog.Use(logger.New(logger.Config{
+            Format: "[${ip}]:${port} ${status} - ${method} ${path}\n",
+        }))
+        hosts["blog.localhost:3000"] = &Host{blog}
+        blog.Get("/", func(c fiber.Ctx) error {
+            return c.SendString("Blog")
+        })
+        
+        //---------
+        // Website
+        //---------
+        site := fiber.New()
+        site.Use(logger.New(logger.Config{
+            Format: "[${ip}]:${port} ${status} - ${method} ${path}\n",
+        }))
+        hosts["localhost:3000"] = &Host{site}
+        site.Get("/", func(c fiber.Ctx) error {
+            return c.SendString("Website")
+        })
+        
+        // Server
+        app := fiber.New()
+        app.Use(func(c fiber.Ctx) error {
+            host := hosts[c.Hostname()]
+            if host == nil {
+                return c.SendStatus(fiber.StatusNotFound)
+            }
+            host.Fiber.Handler()(c.Context())
+            return nil
+        })
+        
+        log.Fatal(app.Listen(":3000"))
+    }
+    ```
+
+    For more information, see issue [#750](https://github.com/gofiber/fiber/issues/750).
+  </Accordion>
+</AccordionGroup>
+
+## Compatibility and Integration
+
+<AccordionGroup>
+  <Accordion title="How can I handle conversions between Fiber and net/http?" icon="right-left">
+    Fiber can register common `net/http` handlers directly—just pass an `http.Handler`, `http.HandlerFunc`, compatible function, or even a native `fasthttp.RequestHandler` to your routing method.
+
+    For other interoperability scenarios, the `adaptor` middleware provides utilities for converting between Fiber and `net/http`. It allows seamless integration of `net/http` handlers, middleware, and requests into Fiber applications, and vice versa.
+
+    <Warning>
+      **Performance trade-offs**: Converted `net/http` handlers run through a compatibility layer. They won't expose `fiber.Ctx` or Fiber-specific helpers, and the extra adaptation work makes them slower than native Fiber handlers. Use them when interoperability matters, but prefer Fiber handlers for maximum performance.
+    </Warning>
+
+    For details on how to:
+    - Convert `net/http` handlers to Fiber handlers
+    - Convert Fiber handlers to `net/http` handlers
+    - Convert `fiber.Ctx` to `http.Request`
+
+    See the dedicated documentation: [Adaptor Documentation](../middleware/adaptor.md).
+  </Accordion>
+
+  <Accordion title="Is Fiber compatible with net/http?" icon="plug">
+    Yes, but with some considerations:
+
+    Fiber is built on top of [fasthttp](https://github.com/valyala/fasthttp) rather than `net/http` for performance reasons. However, Fiber provides:
+
+    - **Adaptor middleware** for converting between Fiber and `net/http` handlers
+    - **Similar API** to Express.js and other web frameworks for easier learning
+    - **Context wrappers** that can be converted to `http.Request` and `http.ResponseWriter`
+
+    While you can integrate `net/http` handlers, using native Fiber handlers will provide better performance.
+  </Accordion>
+</AccordionGroup>
+
+## Performance and Architecture
+
+<AccordionGroup>
+  <Accordion title="Why is Fiber so fast?" icon="bolt">
+    Fiber achieves exceptional performance through several design decisions:
+
+    1. **Built on fasthttp**: Uses [fasthttp](https://github.com/valyala/fasthttp) instead of `net/http`, which is optimized for speed
+    2. **Zero-allocation router**: Custom router designed to minimize memory allocations
+    3. **Efficient memory pooling**: Reuses objects to reduce garbage collection pressure
+    4. **Optimized middleware**: Middleware pipeline is designed for minimal overhead
+    5. **No reflection in hot paths**: Avoids expensive reflection operations in critical code paths
+
+    See our [Benchmarks](./benchmarks.mdx) for detailed performance comparisons.
+  </Accordion>
+
+  <Accordion title="What is zero-allocation routing?" icon="route">
+    Zero-allocation routing means the router doesn't allocate new memory for most operations, reducing garbage collection overhead and improving performance.
+
+    Fiber's router achieves this by:
+    - Reusing route parameter buffers
+    - Using memory pools for common objects
+    - Avoiding unnecessary string allocations
+    - Optimizing path matching algorithms
+
+    This is particularly beneficial for high-traffic applications where every allocation counts.
+  </Accordion>
+
+  <Accordion title="Should I use Fiber for production?" icon="server">
+    Yes, Fiber is production-ready and used by many companies in production environments.
+
+    Fiber provides:
+    - **Battle-tested foundation**: Built on fasthttp, which is widely used in production
+    - **Active maintenance**: Regular updates and security patches
+    - **Large community**: Extensive middleware ecosystem and community support
+    - **Proven performance**: Excellent benchmarks and real-world performance
+
+    However, always:
+    - Test thoroughly with your specific use case
+    - Monitor performance in production
+    - Follow security best practices
+    - Keep dependencies updated
+  </Accordion>
+</AccordionGroup>
+
+## Community and Support
+
+<AccordionGroup>
+  <Accordion title="Does Fiber have a community chat?" icon="comments">
+    Yes, we have a [Discord](https://gofiber.io/discord) server with rooms for every topic.
+
+    If you have questions or just want to chat, join us via this [invite link](https://gofiber.io/discord).
+
+    ![Discord Community](/img/support-discord.png)
+  </Accordion>
+
+  <Accordion title="How can I contribute to Fiber?" icon="code-pull-request">
+    We welcome contributions! Here's how you can help:
+
+    1. **Report bugs**: Open an issue on [GitHub](https://github.com/gofiber/fiber/issues)
+    2. **Submit PRs**: Fix bugs or add features
+    3. **Improve docs**: Help improve documentation
+    4. **Create middleware**: Build and share middleware packages
+    5. **Help others**: Answer questions on Discord and GitHub
+
+    Check out our [Contributing Guide](https://github.com/gofiber/fiber/blob/master/.github/CONTRIBUTING.md) for more details.
+  </Accordion>
+
+  <Accordion title="Where can I find examples?" icon="book-open">
+    Several resources are available:
+
+    - [Official Examples](https://github.com/gofiber/fiber/tree/master/examples)
+    - [Recipes Repository](https://github.com/gofiber/recipes)
+    - [Boilerplate Projects](https://github.com/gofiber/boilerplate)
+    - [Community Tutorials](./learning-resources.mdx)
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Topics
+
+<AccordionGroup>
+  <Accordion title="Can I use Fiber with microservices?" icon="cubes">
+    Absolutely! Fiber is excellent for microservices due to:
+
+    - **Low resource footprint**: Uses minimal memory and CPU
+    - **Fast startup time**: Quickly starts and stops for container environments
+    - **High throughput**: Handles many requests efficiently
+    - **Small binary size**: Compiles to compact executables
+
+    Common microservice patterns with Fiber:
+    - REST APIs
+    - gRPC services (with adaptor)
+    - Event-driven services
+    - Service mesh components
+  </Accordion>
+
+  <Accordion title="How do I handle WebSockets?" icon="network-wired">
+    Fiber supports WebSockets through the WebSocket middleware:
+
+    ```go
+    import "github.com/gofiber/fiber/v3/middleware/websocket"
+
+    app.Use("/ws", func(c fiber.Ctx) error {
+        if websocket.IsWebSocketUpgrade(c) {
+            return c.Next()
+        }
+        return fiber.ErrUpgradeRequired
+    })
+
+    app.Get("/ws/:id", websocket.New(func(c *websocket.Conn) {
+        // WebSocket logic here
+    }))
+    ```
+
+    See the [WebSocket middleware documentation](../middleware/websocket.md) for more details.
+  </Accordion>
+
+  <Accordion title="Can I run multiple Fiber apps?" icon="layer-group">
+    Yes, you can run multiple Fiber applications:
+
+    1. **On different ports**:
+    ```go
+    app1 := fiber.New()
+    app2 := fiber.New()
+    
+    go app1.Listen(":3000")
+    app2.Listen(":3001")
+    ```
+
+    2. **Using app mounting**:
+    ```go
+    api := fiber.New()
+    api.Get("/users", getUsers)
+    
+    app := fiber.New()
+    app.Mount("/api", api)
+    ```
+
+    3. **Subdomain routing** (see example above)
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  Have a question not answered here? Visit our [Discord community](https://gofiber.io/discord) or [open an issue](https://github.com/gofiber/fiber/issues) on GitHub.
+</Note>

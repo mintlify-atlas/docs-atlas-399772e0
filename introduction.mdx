@@ -1,0 +1,181 @@
+---
+title: Introduction to Fiber
+description: Fiber is an Express inspired web framework built on top of Fasthttp, the fastest HTTP engine for Go. Designed to ease things up for fast development with zero memory allocation and performance in mind.
+---
+
+<img
+  className="block dark:hidden"
+  src="https://raw.githubusercontent.com/gofiber/docs/master/static/img/v3/logo.svg"
+  alt="Fiber Logo"
+  height="125"
+/>
+<img
+  className="hidden dark:block"
+  src="https://raw.githubusercontent.com/gofiber/docs/master/static/img/v3/logo-dark.svg"
+  alt="Fiber Logo Dark"
+  height="125"
+/>
+
+# Welcome to Fiber
+
+Fiber is an **Express inspired web framework** built on top of [Fasthttp](https://github.com/valyala/fasthttp), the **fastest** HTTP engine for Go. Designed to **ease** things up for **fast** development with [**zero memory allocation**](#zero-allocation) and **performance** in mind.
+
+## Why Fiber?
+
+New gophers that make the switch from [Node.js](https://nodejs.org/en/about/) to [Go](https://go.dev/doc/) are dealing with a learning curve before they can start building their web applications or microservices. Fiber, as a **web framework**, was created with the idea of **minimalism** and follows the **UNIX way**, so that new gophers can quickly enter the world of Go with a warm and trusted welcome.
+
+Fiber is **inspired** by Express, the most popular web framework on the Internet. We combined the **ease** of Express and **raw performance** of Go. If you have ever implemented a web application in Node.js (*using Express or similar*), then many methods and principles will seem **very common** to you.
+
+## Quick example
+
+Here's a simple "Hello, World" example to get you started:
+
+```go
+package main
+
+import (
+    "log"
+
+    "github.com/gofiber/fiber/v3"
+)
+
+func main() {
+    // Initialize a new Fiber app
+    app := fiber.New()
+
+    // Define a route for the GET method on the root path '/'
+    app.Get("/", func(c fiber.Ctx) error {
+        // Send a string response to the client
+        return c.SendString("Hello, World 👋!")
+    })
+
+    // Start the server on port 3000
+    log.Fatal(app.Listen(":3000"))
+}
+```
+
+This simple server is easy to set up and run. Just run this Go program, and visit `http://localhost:3000` in your browser to see the message.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Routing" icon="route" href="/guide/routing">
+    Robust routing system with support for parameters, wildcards, and named routes
+  </Card>
+  <Card title="Middleware" icon="layer-group" href="/api/middleware">
+    Extensive middleware ecosystem with support for custom middleware and Next() chaining
+  </Card>
+  <Card title="API reference" icon="code" href="/api/ctx">
+    Complete API endpoints for request and response handling
+  </Card>
+  <Card title="Client" icon="globe" href="/client">
+    Easy-to-use HTTP client based on fasthttp, inspired by resty and axios
+  </Card>
+  <Card title="Performance" icon="gauge-high" href="/extra/benchmarks">
+    Extreme performance with low memory footprint and zero allocation
+  </Card>
+  <Card title="Static files" icon="folder-open" href="/api/app#static">
+    Serve static files with built-in middleware
+  </Card>
+  <Card title="WebSocket support" icon="plug" href="https://github.com/gofiber/contrib/tree/main/websocket">
+    Full WebSocket and Socket.io support
+  </Card>
+  <Card title="Template engines" icon="file-code" href="https://github.com/gofiber/template">
+    Multiple template engines including Pug, Handlebars, Mustache, and more
+  </Card>
+</CardGroup>
+
+## Zero allocation
+
+Fiber is optimized for **high-performance**, meaning values returned from **fiber.Ctx** are **not** immutable by default and **will** be re-used across requests. As a rule of thumb, you **must** only use context values within the handler and **must not** keep any references. Once you return from the handler, any values obtained from the context will be re-used in future requests.
+
+<Warning>
+  Do not store references to context values outside of handlers. They will be reused and modified in future requests, leading to data corruption.
+</Warning>
+
+## Benchmarks
+
+These tests are performed by [TechEmpower](https://www.techempower.com/benchmarks/#section=data-r19&hw=ph&test=plaintext). Fiber consistently ranks among the top Go frameworks for both plaintext and JSON serialization benchmarks.
+
+<CardGroup cols={2}>
+  <Card>
+    <img src="https://raw.githubusercontent.com/gofiber/docs/master/static/img/v3/plaintext.png" alt="Plaintext Benchmark" />
+  </Card>
+  <Card>
+    <img src="https://raw.githubusercontent.com/gofiber/docs/master/static/img/v3/json.png" alt="JSON Benchmark" />
+  </Card>
+</CardGroup>
+
+## Philosophy
+
+We **listen** to our users in [issues](https://github.com/gofiber/fiber/issues), Discord [channel](https://gofiber.io/discord) and all over the Internet to create a **fast**, **flexible** and **friendly** Go web framework for **any** task, **deadline** and developer **skill**! Just like Express does in the JavaScript world.
+
+## Compatibility
+
+### net/http compatibility
+
+Fiber can run side by side with the standard library. The router accepts existing `net/http` handlers directly and even works with native `fasthttp.RequestHandler` callbacks:
+
+```go
+package main
+
+import (
+    "log"
+    "net/http"
+
+    "github.com/gofiber/fiber/v3"
+)
+
+func main() {
+    httpHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if _, err := w.Write([]byte("served by net/http")); err != nil {
+            panic(err)
+        }
+    })
+
+    app := fiber.New()
+    app.Get("/", httpHandler)
+
+    log.Fatal(app.Listen(":3000"))
+}
+```
+
+<Note>
+  When you need to convert entire applications or re-use `net/http` middleware chains, rely on the [adaptor middleware](/middleware/adaptor).
+</Note>
+
+### Express-style handlers
+
+Fiber also adapts Express-style callbacks that operate on the lightweight `fiber.Req` and `fiber.Res` helper interfaces:
+
+```go
+// Request/response handlers (2-argument)
+app.Get("/", func(req fiber.Req, res fiber.Res) error {
+    return res.SendString("Hello from Express-style handlers!")
+})
+
+// Middleware with an error-returning next callback (3-argument)
+app.Use(func(req fiber.Req, res fiber.Res, next func() error) error {
+    if req.IP() == "192.168.1.254" {
+        return res.SendStatus(fiber.StatusForbidden)
+    }
+    return next()
+})
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Get started by installing Fiber in your project
+  </Card>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Build your first Fiber application
+  </Card>
+  <Card title="Routing guide" icon="route" href="/guide/routing">
+    Learn about Fiber's routing capabilities
+  </Card>
+  <Card title="API documentation" icon="book" href="/api/fiber">
+    Explore the complete API reference
+  </Card>
+</CardGroup>
