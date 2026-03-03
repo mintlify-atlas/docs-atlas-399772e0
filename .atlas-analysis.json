@@ -1,0 +1,173 @@
+{
+  "projectType": "framework",
+  "projectName": "Fiber",
+  "projectDescription": "Express-inspired web framework built on Fasthttp for high-performance Go applications",
+  "theme": "aspen",
+  "primaryColor": "#00ACD7",
+  "lightColor": "#4DD0E1",
+  "darkColor": "#00838F",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/routing",
+              "concepts/middleware",
+              "concepts/context",
+              "concepts/error-handling",
+              "concepts/grouping",
+              "concepts/templates"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/validation",
+              "guides/faster-fiber",
+              "guides/reverse-proxy",
+              "guides/formatting",
+              "guides/extractors",
+              "guides/utils"
+            ]
+          },
+          {
+            "group": "Client",
+            "pages": [
+              "client/overview",
+              "client/request",
+              "client/response",
+              "client/hooks",
+              "client/rest",
+              "client/examples"
+            ]
+          },
+          {
+            "group": "Add-ons",
+            "pages": [
+              "addons/retry"
+            ]
+          },
+          {
+            "group": "Extra",
+            "pages": [
+              "extra/benchmarks",
+              "extra/faq",
+              "extra/learning-resources"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core API",
+            "pages": [
+              "api/app",
+              "api/ctx",
+              "api/fiber",
+              "api/constants",
+              "api/hooks",
+              "api/state",
+              "api/redirect",
+              "api/services",
+              "api/log"
+            ]
+          },
+          {
+            "group": "Binding & Validation",
+            "pages": [
+              "api/bind"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Middleware",
+        "groups": [
+          {
+            "group": "Built-in Middleware",
+            "pages": [
+              "middleware/adaptor",
+              "middleware/basicauth",
+              "middleware/cache",
+              "middleware/compress",
+              "middleware/cors",
+              "middleware/csrf",
+              "middleware/earlydata",
+              "middleware/encryptcookie",
+              "middleware/envvar",
+              "middleware/etag",
+              "middleware/expvar",
+              "middleware/favicon",
+              "middleware/healthcheck",
+              "middleware/helmet",
+              "middleware/idempotency",
+              "middleware/keyauth",
+              "middleware/limiter",
+              "middleware/logger",
+              "middleware/pprof",
+              "middleware/proxy",
+              "middleware/recover",
+              "middleware/redirect",
+              "middleware/requestid",
+              "middleware/rewrite",
+              "middleware/session",
+              "middleware/skip",
+              "middleware/static",
+              "middleware/timeout"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Express-inspired routing with parameter support",
+    "High-performance HTTP built on Fasthttp",
+    "Zero memory allocation optimization",
+    "Extensive middleware ecosystem (29+ built-in)",
+    "Request/response binding and validation",
+    "Template engine support",
+    "WebSocket and Server-Sent Events",
+    "HTTP client with hooks and interceptors",
+    "Route grouping and naming",
+    "Context pooling for performance",
+    "Custom error handling",
+    "Static file serving"
+  ],
+  "publicApiSurface": [
+    "fiber.New() - Create new Fiber app",
+    "App.Get/Post/Put/Delete/Patch - HTTP method routing",
+    "App.Use() - Register middleware",
+    "App.Group() - Create route groups",
+    "App.Listen() - Start server",
+    "App.Static() - Serve static files",
+    "Ctx.JSON() - Send JSON response",
+    "Ctx.SendString() - Send string response",
+    "Ctx.Params() - Get route parameters",
+    "Ctx.Query() - Get query parameters",
+    "Ctx.Body() - Get request body",
+    "Ctx.Bind() - Bind request to struct",
+    "Ctx.Next() - Call next middleware",
+    "Ctx.Redirect() - Redirect request",
+    "Ctx.Cookie() - Set cookie",
+    "Ctx.Render() - Render template",
+    "fiber.Handler - Handler function type",
+    "fiber.Map - Convenience map type",
+    "fiber.Config - App configuration",
+    "client.New() - Create HTTP client",
+    "client.Get/Post/Put/Delete - HTTP methods"
+  ]
+}
